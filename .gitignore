@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.env/
+.env
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Node / frontend
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.yarnrc
+.yarnrc.yml
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Frontend builds
+frontend/dist/
+frontend/build/
+
+# Vite/React cache
+frontend/.vite/
+frontend/.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Mininet / Ryu artifacts
+*.pid
+*.sock
+*.pcap
+*.db
