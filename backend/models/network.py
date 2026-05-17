@@ -39,6 +39,8 @@ class Link(BaseModel):
     latency_ms: Optional[float] = None
     packet_loss_pct: Optional[float] = None
     utilization_pct: Optional[float] = None
+    src_port: Optional[int] = None   # source 端口号（来自 Ryu topology API）
+    dst_port: Optional[int] = None   # target 端口号
 
 
 class Topology(BaseModel):

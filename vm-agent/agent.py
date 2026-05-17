@@ -68,192 +68,142 @@ def debug_ryu():
     return jsonify(result)
 
 # ─────────────────────────────────────────────────────
-#  拓扑 — 双策略获取拓扑
-#  策略1: 优先使用 ryu.topology.switches REST API
-#  策略2: 回退到 /stats/ API + flow 表推断链路（不需要额外模块）
+#  拓扑 — 唯一策略: Ryu LLDP topology API
+#  要求 Ryu 启动时加载 ryu.topology.switches --observe-links
 # ─────────────────────────────────────────────────────
 @app.route("/topology")
 def get_topology():
+    """
+    从 Ryu 的 topology REST API 获取真实拓扑，不做任何猜测或硬编码推断。
+    支持任意拓扑结构，不限于当前三交换机测试网络。
+    """
     try:
+        # ── Step 1: 检查 topology API 可达性 ─────────────────
         sw_resp = requests.get(f"{RYU_BASE}/v1.0/topology/switches", timeout=5)
+        if not sw_resp.ok or sw_resp.status_code == 404:
+            return jsonify({
+                "nodes": [], "links": [],
+                "error": "Ryu topology API 不可用，请确认 ryu.topology.switches 已加载 (--observe-links)",
+                "source": "error"
+            }), 200
 
-        # ── 判断 topology API 是否可用 ────────────────
-        topology_api_ok = sw_resp.ok and sw_resp.status_code != 404
-        topo_data = safe_json(sw_resp) if topology_api_ok else None
+        switches = safe_json(sw_resp) or []
+        if not switches:
+            return jsonify({
+                "nodes": [], "links": [],
+                "error": "Ryu 返回了空的交换机列表，网络可能尚未就绪",
+                "source": "pending"
+            }), 200
 
-        if topology_api_ok and topo_data is not None:
-            # ==============================
-            # 策略 1: 使用 topology REST API
-            # ==============================
-            lk_resp   = requests.get(f"{RYU_BASE}/v1.0/topology/links", timeout=5)
-            ht_resp   = requests.get(f"{RYU_BASE}/v1.0/topology/hosts", timeout=5)
-            switches  = topo_data
+        # ── Step 2: 轮询等待 LLDP 发现链路（最多 10 次，间隔 1s）─
+        # LLDP 发现交换机间链路需要时间，避免返回无链路的拓扑
+        links_raw = []
+        for attempt in range(10):
+            lk_resp = requests.get(f"{RYU_BASE}/v1.0/topology/links", timeout=5)
             links_raw = safe_json(lk_resp) or []
-            hosts     = safe_json(ht_resp) or []
+            # 交换机数 >= 2 时，若已发现至少 (sw数-1)*2 条有向链路则认为已稳定
+            expected = max(1, (len(switches) - 1) * 2)
+            if len(links_raw) >= expected:
+                break
+            if attempt < 9:
+                time.sleep(1)
 
-            nodes = []
-            dpid_to_node = {}
-            for sw in switches:
-                dpid = sw.get("dpid", "")
-                node_id = f"s{_dpid_int(dpid)}"
-                dpid_to_node[dpid] = node_id
-                nodes.append({
-                    "id": node_id, "type": "switch", "label": node_id,
-                    "dpid": dpid, "port_count": len(sw.get("ports", [])),
-                })
+        # ── Step 3: 获取已学习到的主机 ──────────────────────
+        ht_resp = requests.get(f"{RYU_BASE}/v1.0/topology/hosts", timeout=5)
+        hosts_raw = safe_json(ht_resp) or []
 
-            mac_to_host = {}
-            for i, host in enumerate(hosts, start=1):
-                mac  = host.get("mac", "")
-                ipv4 = host.get("ipv4", [])
-                host_id = f"h{i}"
-                mac_to_host[mac] = host_id
-                nodes.append({
-                    "id": host_id, "type": "host", "label": host_id,
-                    "mac": mac, "ip": ipv4[0] if ipv4 else None,
-                })
-
-            link_list  = []
-            seen_links = set()
-            for link in links_raw:
-                src_dpid = link.get("src", {}).get("dpid", "")
-                dst_dpid = link.get("dst", {}).get("dpid", "")
-                src_id = dpid_to_node.get(src_dpid, f"s_{src_dpid}")
-                dst_id = dpid_to_node.get(dst_dpid, f"s_{dst_dpid}")
-                key = tuple(sorted([src_id, dst_id]))
-                if key in seen_links:
-                    continue
-                seen_links.add(key)
-                link_list.append({"id": f"{src_id}-{dst_id}",
-                                   "source": src_id, "target": dst_id, "state": "up"})
-
-            for host in hosts:
-                mac     = host.get("mac", "")
-                host_id = mac_to_host.get(mac)
-                if not host_id:
-                    continue
-                port_info    = host.get("port", {})
-                sw_dpid      = port_info.get("dpid", "")
-                connected_sw = dpid_to_node.get(sw_dpid)
-                if connected_sw:
-                    link_list.append({"id": f"{host_id}-{connected_sw}",
-                                      "source": host_id, "target": connected_sw, "state": "up"})
-
-            return jsonify({"nodes": nodes, "links": link_list,
-                            "timestamp": time.time(), "source": "topology_api"})
-
-        else:
-            # ==============================
-            # 策略 2: 仅使用 /stats/ API
-            # 从 ofctl_rest 获取交换机列表和端口描述，推断链路
-            # ==============================
-            return _build_topology_from_stats()
-
-    except Exception as e:
-        return jsonify({"nodes": [], "links": [], "error": str(e)}), 200
-
-
-def _build_topology_from_stats():
-    """
-    回退方案：不依赖 ryu.topology.switches，
-    从 /stats/switches + /stats/portdesc/<dpid> 构建交换机节点，
-    再从 /stats/flow/<dpid> 推断已学习到的主机 IP。
-    链路拓扑根据 mininet_topo.py 的已知结构填充。
-    """
-    try:
-        sw_resp = requests.get(f"{RYU_BASE}/stats/switches", timeout=5)
-        if not sw_resp.ok:
-            return jsonify({"nodes": [], "links": [],
-                            "error": "无法从 Ryu 获取交换机列表", "source": "stats_fallback"})
-
-        dpids = sw_resp.json() or []
+        # ── Step 4: 构建节点列表（交换机）────────────────────
         nodes = []
         dpid_to_node = {}
-
-        for dpid in dpids:
+        for sw in switches:
+            dpid = sw.get("dpid", "")
             node_id = f"s{_dpid_int(dpid)}"
             dpid_to_node[dpid] = node_id
-        # 获取端口状态，检测是否有宕机的端口
-        down_links = set()
-        for dpid in dpids:
-            node_id = f"s{_dpid_int(dpid)}"
-            pd_resp = requests.get(f"{RYU_BASE}/stats/portdesc/{dpid}", timeout=5)
-            port_data = safe_json(pd_resp)
-            port_count = 0
-            if port_data:
-                ports = port_data.get(str(dpid), [])
-                port_count = len(ports)
-                for p in ports:
-                    # OFPPS_LINK_DOWN 位为 1 表示链路断开
-                    if p.get("state", 0) & 1:
-                        name = p.get("name", "")
-                        # 根据接口名称映射到具体的拓扑链路
-                        if name in ["s1-eth1", "s2-eth1"]: down_links.add("s1-s2")
-                        if name in ["s1-eth2", "s3-eth1"]: down_links.add("s1-s3")
-                        if name in ["s2-eth2"]: down_links.add("h1-s2")
-                        if name in ["s2-eth3"]: down_links.add("h2-s2")
-                        if name in ["s3-eth2"]: down_links.add("h3-s3")
-                        if name in ["s3-eth3"]: down_links.add("h4-s3")
+            # 提取端口信息，记录端口号到接口名映射（供链路 ID 生成用）
+            ports = sw.get("ports", [])
+            nodes.append({
+                "id": node_id,
+                "type": "switch",
+                "label": node_id,
+                "dpid": dpid,
+                "port_count": len(ports),
+            })
+
+        # ── Step 5: 构建交换机间链路（来自 LLDP 真实发现）───
+        link_list = []
+        seen_links = set()
+        for link in links_raw:
+            src_dpid = link.get("src", {}).get("dpid", "")
+            dst_dpid = link.get("dst", {}).get("dpid", "")
+            src_port  = link.get("src", {}).get("port_no")
+            dst_port  = link.get("dst", {}).get("port_no")
+            src_id = dpid_to_node.get(src_dpid, f"s_{src_dpid}")
+            dst_id = dpid_to_node.get(dst_dpid, f"s_{dst_dpid}")
+            # 去重：LLDP 链路是双向的，只保留一条
+            key = tuple(sorted([src_id, dst_id]))
+            if key in seen_links:
+                continue
+            seen_links.add(key)
+            link_list.append({
+                "id": f"{src_id}-{dst_id}",
+                "source": src_id,
+                "target": dst_id,
+                "state": "up",
+                "src_port": src_port,
+                "dst_port": dst_port,
+            })
+
+        # ── Step 6: 构建主机节点及主机-交换机链路 ────────────
+        # 主机信息完全来自 Ryu 的 PacketIn 学习，不依赖任何配置文件
+        mac_to_host_id = {}
+        host_counter = 1
+        for host in hosts_raw:
+            mac  = host.get("mac", "")
+            ipv4 = host.get("ipv4", [])
+            port_info = host.get("port", {})
+            sw_dpid   = port_info.get("dpid", "")
+            port_no   = port_info.get("port_no")
+            connected_sw = dpid_to_node.get(sw_dpid)
+
+            # 用 MAC 地址作为唯一键，避免重复添加
+            if mac in mac_to_host_id:
+                continue
+            host_id = f"h{host_counter}"
+            host_counter += 1
+            mac_to_host_id[mac] = host_id
 
             nodes.append({
-                "id": node_id, "type": "switch", "label": node_id,
-                "dpid": str(dpid), "port_count": port_count,
+                "id": host_id,
+                "type": "host",
+                "label": host_id,
+                "mac": mac,
+                "ip": ipv4[0] if ipv4 else None,
             })
 
-        # 从流表中提取已学习到的主机 IP
-
-        host_ips = set()
-        for dpid in dpids:
-            fl_resp = requests.get(f"{RYU_BASE}/stats/flow/{dpid}", timeout=5)
-            flow_data = safe_json(fl_resp)
-            if not flow_data:
-                continue
-            for flow in flow_data.get(str(dpid), []):
-                match = flow.get("match", {})
-                for field in ["ipv4_src", "ipv4_dst", "nw_src", "nw_dst"]:
-                    ip = match.get(field)
-                    if ip and not ip.startswith("10.0.0.255"):
-                        host_ips.add(ip)
-
-        # ── 从 topology_config.json 读取主机（固定拓扑）────
-        host_config = load_host_config()
-        host_nodes = []
-        host_links = []
-        for h in host_config:
-            host_nodes.append({
-                "id": h["id"], "type": "host",
-                "label": h["id"], "ip": h["ip"], "mac": h.get("mac"),
-            })
-            connected_sw = h.get("connected_switch")
-            if connected_sw and connected_sw in [n["id"] for n in nodes]:
-                link_id = f"{h['id']}-{connected_sw}"
-                link_state = "down" if link_id in down_links else "up"
-                host_links.append({
-                    "id": link_id,
-                    "source": h["id"], "target": connected_sw, "state": link_state,
-                })
-        nodes.extend(host_nodes)
-
-        # 链路：交换机间链路（星型推断）+ 主机链路
-        link_list = []
-        sw_ids = [n["id"] for n in nodes if n["type"] == "switch"]
-        if len(sw_ids) >= 2:
-            core = sw_ids[0]
-            for edge_sw in sw_ids[1:]:
-                link_id = f"{core}-{edge_sw}"
-                link_state = "down" if link_id in down_links else "up"
+            if connected_sw:
                 link_list.append({
-                    "id": link_id,
-                    "source": core, "target": edge_sw, "state": link_state,
+                    "id": f"{host_id}-{connected_sw}",
+                    "source": host_id,
+                    "target": connected_sw,
+                    "state": "up",
+                    "src_port": None,
+                    "dst_port": port_no,
                 })
-        link_list.extend(host_links)
 
-        return jsonify({"nodes": nodes, "links": link_list,
-                        "timestamp": time.time(), "source": "stats_fallback",
-                        "note": "ryu.topology.switches 未加载，使用 stats API 回退模式"})
+        return jsonify({
+            "nodes": nodes,
+            "links": link_list,
+            "timestamp": time.time(),
+            "source": "topology_api",
+            "switch_count": len(switches),
+            "link_count": len(link_list),
+        })
 
     except Exception as e:
-        return jsonify({"nodes": [], "links": [], "error": str(e), "source": "stats_fallback"})
+        return jsonify({"nodes": [], "links": [], "error": str(e), "source": "error"}), 200
+
+
+
 
 
 
@@ -288,33 +238,120 @@ def get_stats():
         return jsonify({"switches": [], "error": str(e)})
 
 
+# ── 端口采样缓存：{dpid_portno: (timestamp, bytes_total)} ──
+_port_samples: dict = {}
+
+# 链路带宽上限（bps），与 mininet_topo.py 中 bw=100 Mbps 对应
+_LINK_BW_BPS = 100 * 1_000_000
+
+
 @app.route("/link-stats")
 def get_link_stats():
-    import random
+    """基于 OVS 端口字节差值计算真实利用率，延迟根据丢包率估算。
+    两次调用之间取差值，首次调用返回 0 利用率（无前样本）但不返回随机值。
+    """
+    global _port_samples
+    now = time.time()
+
     try:
+        # ── 1. 拉取交换机列表 ─────────────────────────────
+        sw_resp = requests.get(f"{RYU_BASE}/stats/switches", timeout=5)
+        if not sw_resp.ok:
+            return jsonify({"links": [], "error": "无法获取交换机列表", "timestamp": now})
+        dpids = sw_resp.json() or []
+
+        # ── 2. 对每台交换机采样端口字节数 ─────────────────
+        new_samples: dict = {}
+        # dpid → {port_no: {rx_bytes, tx_bytes, rx_errors, tx_packets}}
+        port_data_map: dict = {}
+        for dpid in dpids:
+            pr = requests.get(f"{RYU_BASE}/stats/port/{dpid}", timeout=5)
+            if not pr.ok:
+                continue
+            ports_raw = pr.json().get(str(dpid), [])
+            port_data_map[dpid] = {}
+            for p in ports_raw:
+                pno = p.get("port_no", 0)
+                if pno == 4294967294:   # LOCAL 端口，跳过
+                    continue
+                rb = p.get("rx_bytes", 0)
+                tb = p.get("tx_bytes", 0)
+                re_ = p.get("rx_errors", 0)
+                txp = p.get("tx_packets", 0)
+                rxp = p.get("rx_packets", 0)
+                key = f"{dpid}:{pno}"
+                new_samples[key] = (now, rb + tb)
+                port_data_map[dpid][pno] = {
+                    "rx_bytes": rb, "tx_bytes": tb,
+                    "rx_errors": re_, "tx_packets": txp, "rx_packets": rxp,
+                }
+
+        # ── 3. 获取当前拓扑，拿到链路列表 ─────────────────
         topo_resp = get_topology()
-        if isinstance(topo_resp, tuple):
-            resp_obj = topo_resp[0]
-        else:
-            resp_obj = topo_resp
-            
+        resp_obj = topo_resp[0] if isinstance(topo_resp, tuple) else topo_resp
         topo_data = resp_obj.get_json()
         links = topo_data.get("links", [])
-        
+
+        # ── 4. 构建 dpid_to_node 映射（node_id → dpid）───
+        node_to_dpid: dict = {}
+        for node in topo_data.get("nodes", []):
+            if node.get("type") == "switch" and node.get("dpid"):
+                node_to_dpid[node["id"]] = int(node["dpid"], 16) if isinstance(node["dpid"], str) else node["dpid"]
+
+        # ── 5. 计算每条链路的利用率 ───────────────────────
         link_stats = []
         for link in links:
             if link.get("state") == "down":
                 continue
+
+            src_id = link.get("source", "")
+            dst_id = link.get("target", "")
+            lid = link.get("id", f"{src_id}-{dst_id}")
+
+            # 获取 src 端口字节差值（选编号最小的非 LOCAL 端口）
+            utilization_pct = 0.0
+            latency_ms = 2.0          # 基准延迟（拓扑配置 1ms + 1ms 抖动）
+            packet_loss_pct = 0.0
+
+            src_dpid = node_to_dpid.get(src_id)
+            if src_dpid and src_dpid in port_data_map:
+                src_ports = port_data_map[src_dpid]
+                if src_ports:
+                    # 取第一个有效端口
+                    ref_pno = min(src_ports.keys())
+                    key = f"{src_dpid}:{ref_pno}"
+                    prev = _port_samples.get(key)
+                    if prev:
+                        prev_ts, prev_bytes = prev
+                        dt = now - prev_ts
+                        if dt > 0.1:
+                            delta_bytes = new_samples.get(key, (0, 0))[1] - prev_bytes
+                            if delta_bytes >= 0:
+                                bps = (delta_bytes * 8) / dt
+                                utilization_pct = round(min(bps / _LINK_BW_BPS * 100, 100.0), 1)
+
+                    # 延迟估算：根据错误率加权，无错误时保持基准
+                    pd = src_ports[ref_pno]
+                    total_pkt = pd["rx_packets"] + pd["tx_packets"]
+                    if total_pkt > 0:
+                        err_rate = pd["rx_errors"] / total_pkt
+                        latency_ms = round(2.0 + err_rate * 50, 2)
+                        packet_loss_pct = round(min(err_rate * 100, 100.0), 2)
+
             link_stats.append({
-                "id": link.get("id"),
-                "latency_ms": round(random.uniform(1.0, 8.0), 2),
-                "packet_loss_pct": round(random.uniform(0.0, 0.5), 2),
-                "utilization_pct": round(random.uniform(5.0, 40.0), 1)
+                "id": lid,
+                "latency_ms": latency_ms,
+                "packet_loss_pct": packet_loss_pct,
+                "utilization_pct": utilization_pct,
             })
-            
-        return jsonify({"links": link_stats, "timestamp": time.time()})
+
+        # ── 6. 更新缓存 ───────────────────────────────────
+        _port_samples = new_samples
+
+        return jsonify({"links": link_stats, "timestamp": now})
+
     except Exception as e:
-        return jsonify({"links": [], "error": str(e), "timestamp": time.time()})
+        return jsonify({"links": [], "error": str(e), "timestamp": now})
 
 
 # ─────────────────────────────────────────────────────

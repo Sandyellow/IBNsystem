@@ -83,16 +83,7 @@ for i in $(seq 1 15); do
     sleep 1
 done
 
-# ── 步骤 2: 启动 Mininet ──────────────────────────────
-log "启动 Mininet 拓扑（后台自动 pingAll）..."
-nohup sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topo.py" \
-    > "$LOG_DIR/mininet.log" 2>&1 &
-MN_PID=$!
-echo $MN_PID > "$LOG_DIR/mininet.pid"
-log "Mininet 已启动 (PID: $MN_PID)，等待拓扑建立..."
-sleep 8   # 等待 Mininet 完成 pingAll
-
-# ── 步骤 3: 启动 VM Agent ─────────────────────────────
+# ── 步骤 2: 启动 VM Agent ─────────────────────────────
 log "启动 VM Agent..."
 nohup "$AGENT_PYTHON" "$SCRIPT_DIR/agent.py" \
     > "$LOG_DIR/agent.log" 2>&1 &
@@ -107,20 +98,19 @@ else
     err "VM Agent 启动失败，查看日志: $LOG_DIR/agent.log"
 fi
 
-# ── 验证拓扑 ──────────────────────────────────────────
-log "验证拓扑（等待 Mininet pingAll 完成）..."
-sleep 5
-TOPO=$(curl -s http://127.0.0.1:5000/topology 2>/dev/null)
-NODE_COUNT=$(echo "$TOPO" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('nodes',[])))" 2>/dev/null || echo "0")
-
 echo ""
 echo "════════════════════════════════════"
-log "IBN 系统启动完成！"
+log "IBN 系统服务已就绪！"
 echo "  Ryu    PID: $RYU_PID  日志: $LOG_DIR/ryu.log"
-echo "  Mininet PID: $MN_PID   日志: $LOG_DIR/mininet.log"
 echo "  Agent  PID: $AGENT_PID 日志: $LOG_DIR/agent.log"
-echo "  拓扑节点数: $NODE_COUNT"
 echo ""
-echo "  调试拓扑: curl http://127.0.0.1:5000/debug/ryu | python3 -m json.tool"
-echo "  停止所有: bash $SCRIPT_DIR/stop.sh"
+echo "  即将进入 Mininet 交互式 CLI (mininet>)"
+echo "  按 exit 退出 CLI 时将停止 Mininet 拓扑"
+echo "  停止后台服务请执行: bash $SCRIPT_DIR/stop.sh"
 echo "════════════════════════════════════"
+echo ""
+
+# ── 步骤 3: 启动 Mininet (前台 CLI 模式) ───────────────
+log "启动 Mininet 拓扑 (前台 CLI 模式)..."
+sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topo.py" --cli
+

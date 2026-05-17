@@ -14,12 +14,15 @@ from core.policy_generator import policy_generator
 from core.network_manager import network_manager
 from core.vm_connector import vm_connector
 from api.websocket_manager import ws_manager
+from models.policy import PolicyType
 
 router = APIRouter(prefix="/api/intent", tags=["intent"])
 logger = logging.getLogger(__name__)
 
 # 内存存储（生产环境可换为 DB）
-_records: dict[str, IntentRecord] = {}
+# intent_records 对外可导入（供 debug 路由等使用）
+intent_records: dict[str, IntentRecord] = {}
+_records = intent_records  # 模块内部别名，保持现有代码不变
 
 
 def _now() -> float:
@@ -102,7 +105,10 @@ async def _execute_intent(record: IntentRecord):
         return
 
     # 执行策略
-    result = await vm_connector.apply_policy(policy.model_dump())
+    if policy.policy_type == PolicyType.MININET_CMD:
+        result = await vm_connector.exec_mininet_cmd(policy.command)
+    else:
+        result = await vm_connector.apply_policy(policy.model_dump())
 
     if result.get("success"):
         record.status = IntentStatus.SUCCESS
@@ -111,12 +117,20 @@ async def _execute_intent(record: IntentRecord):
             "vm_response": result.get("result"),
             "has_rollback": rollback is not None,
         }
+        # 主动触发拓扑刷新，以便前端能即时感知物理链路等变化
+        try:
+            await network_manager.refresh_topology()
+        except Exception as e:
+            logger.error(f"主动刷新拓扑失败: {e}")
     else:
         record.status = IntentStatus.FAILED
         record.error_message = f"策略执行失败: {result.get('error')}"
         # 尝试自动回滚
         if rollback:
-            await vm_connector.rollback_policy(rollback.model_dump())
+            if rollback.policy_type == PolicyType.MININET_CMD:
+                await vm_connector.exec_mininet_cmd(rollback.command)
+            else:
+                await vm_connector.rollback_policy(rollback.model_dump())
             record.error_message += " (已自动回滚)"
 
     record.updated_at = _now()

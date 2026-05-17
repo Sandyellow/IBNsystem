@@ -108,12 +108,24 @@ class VMConnector:
 
     # ───── Mininet 命令 ───────────────────────────────────
     async def exec_mininet_cmd(self, command: str) -> Dict[str, Any]:
-        """在 Mininet 中执行命令（如 ping、iperf）"""
+        """在 Mininet 中执行命令（如 ping、iperf、link up/down）
+        
+        修复: HTTP 200 时若响应 JSON 缺少 success 字段，自动补全为 True，
+        避免上层因 result.get('success') 返回 None 而误判为失败。
+        """
         try:
             client = await self._get_client()
             resp = await client.post("/mininet/exec", json={"command": command})
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            # 规范化：确保 success 字段存在（HTTP 200 即视为成功）
+            if "success" not in data:
+                data["success"] = True
+            return data
+        except httpx.HTTPStatusError as e:
+            body = e.response.text
+            logger.error(f"[VMConnector] exec_mininet_cmd HTTP {e.response.status_code}: {body}")
+            return {"success": False, "error": body}
         except Exception as e:
             logger.error(f"[VMConnector] exec_mininet_cmd failed: {e}")
             return {"success": False, "error": str(e)}

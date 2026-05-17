@@ -37,6 +37,7 @@ function ValidationReport({ report }) {
 
 function IntentBubble({ record }) {
   const confirmIntent = useStore(s => s.confirmIntent)
+  const [showDev, setShowDev] = useState(false)
   const [badgeClass, badgeLabel] = STATUS_LABEL[record.status] || ['badge-pending', record.status]
 
   return (
@@ -137,6 +138,45 @@ function IntentBubble({ record }) {
             </div>
           )
         })()}
+
+        {/* 开发者详情按钮 */}
+        <div style={{ marginTop: 4, textAlign: 'right' }}>
+          <button 
+            className="btn btn-sm" 
+            style={{ fontSize: 10, padding: '2px 6px', background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
+            onClick={() => setShowDev(!showDev)}
+          >
+            {showDev ? '隐藏开发者详情' : '💻 开发者详情'}
+          </button>
+        </div>
+
+        {/* 开发者详情面板 */}
+        {showDev && (
+          <div className="bubble bubble-system" style={{ fontSize: 11, background: '#1e1e1e', color: '#d4d4d4', overflowX: 'auto' }}>
+            <div style={{ marginBottom: 4, color: '#569cd6', fontWeight: 'bold' }}>// 意图解析结果</div>
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+              {JSON.stringify(record.parsed_intent || {}, null, 2)}
+            </pre>
+            
+            {record.execution_result?.policy && (
+              <>
+                <div style={{ marginTop: 10, marginBottom: 4, color: '#569cd6', fontWeight: 'bold' }}>// 下发网络策略</div>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {JSON.stringify(record.execution_result.policy, null, 2)}
+                </pre>
+              </>
+            )}
+            
+            {record.execution_result?.vm_response && (
+              <>
+                <div style={{ marginTop: 10, marginBottom: 4, color: '#569cd6', fontWeight: 'bold' }}>// 控制器响应</div>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {JSON.stringify(record.execution_result.vm_response, null, 2)}
+                </pre>
+              </>
+            )}
+          </div>
+        )}
 
       </div>
     </div>

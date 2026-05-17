@@ -11,6 +11,7 @@ from core.vm_connector import vm_connector
 from api.websocket_manager import ws_manager
 from api.routes.network import topology_router, network_router, alerts_router, ws_router
 from api.routes.intent import router as intent_router
+from api.routes.debug import router as debug_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +54,7 @@ app.include_router(network_router)
 app.include_router(alerts_router)
 app.include_router(intent_router)
 app.include_router(ws_router)
+app.include_router(debug_router)
 
 
 @app.get("/api/health")

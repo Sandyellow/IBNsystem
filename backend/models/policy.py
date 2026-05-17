@@ -12,6 +12,7 @@ class PolicyType(str, Enum):
     FLOW_RULE = "flow_rule"
     METER = "meter"
     GROUP = "group"
+    MININET_CMD = "mininet_cmd"
 
 
 class FlowMatch(BaseModel):
@@ -42,6 +43,8 @@ class NetworkPolicy(BaseModel):
     # Meter 相关
     meter_id: Optional[int] = None
     rate_kbps: Optional[int] = None
+    # Mininet 相关
+    command: Optional[str] = None
     description: str = ""
     intent_id: str = ""               # 关联的意图 ID
 
