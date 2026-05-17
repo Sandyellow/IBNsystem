@@ -23,15 +23,34 @@ Ubuntu VM (192.168.114.130)
 
 ## 二、首次配置
 
-### 1. 配置后端 API Key（必填）
+### 1. 搭建后端 Python 虚拟环境
+
+在项目根目录下打开 Windows PowerShell，创建虚拟环境并安装依赖：
 
 ```powershell
-# Windows PowerShell
+# 1. 创建虚拟环境 (在根目录下)
+python -m venv .venv
+
+# 2. 激活虚拟环境并安装后端依赖
+.\.venv\Scripts\pip install -r backend\requirements.txt
+```
+
+### 2. 安装前端依赖
+
+```powershell
+cd frontend
+npm install
+cd ..
+```
+
+### 3. 配置后端环境变量（必填）
+
+```powershell
 Copy-Item backend\.env.example backend\.env
 notepad backend\.env
 ```
 
-在 `.env` 中填入你的大模型服务配置：
+在 `.env` 中填入你的大模型服务配置（系统采用标准 **OpenAI 兼容接口**，支持硅基流动 SiliconFlow、DeepSeek、本地 Ollama、vLLM 等任意兼容服务）：
 
 ```env
 VM_AGENT_URL=http://192.168.114.130:5000
