@@ -187,6 +187,9 @@ async def _handle_query_intent(record: IntentRecord):
     except Exception as e:
         record.status = IntentStatus.FAILED
         record.error_message = f"查询失败: {e}"
+        record.updated_at = _now()
+        await ws_manager.broadcast_intent_update(record.model_dump())
+        return
 
     record.updated_at = _now()
     await ws_manager.broadcast_intent_update(record.model_dump())

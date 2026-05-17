@@ -53,6 +53,7 @@ class PolicyGenerator:
                 IntentAction.REDIRECT_TRAFFIC: self._gen_redirect,
                 IntentAction.SET_PRIORITY: self._gen_set_priority,
                 IntentAction.LOAD_BALANCE: self._gen_load_balance,
+                IntentAction.PING: self._gen_ping,
             }.get(intent.action)
 
             if handler is None:
@@ -203,6 +204,18 @@ class PolicyGenerator:
             match=FlowMatch(ipv4_dst=dst_ip),
             actions=[FlowAction(type="group", value="load_balance")],
             description=f"负载均衡到 {intent.target_node}",
+            intent_id=intent_id,
+        )
+        return policy, None
+
+    def _gen_ping(self, intent, dpid, src_ip, dst_ip, intent_id):
+        policy = NetworkPolicy(
+            policy_type=PolicyType.FLOW_RULE,
+            dpid=dpid,
+            priority=300,
+            match=FlowMatch(ipv4_src=src_ip, ipv4_dst=dst_ip, ip_proto=1),
+            actions=[FlowAction(type="output", value="NORMAL")],
+            description=f"放行 PING (ICMP): {intent.source_node}↔{intent.target_node}",
             intent_id=intent_id,
         )
         return policy, None

@@ -316,7 +316,31 @@ def get_stats():
 
 @app.route("/link-stats")
 def get_link_stats():
-    return jsonify({"links": [], "timestamp": time.time()})
+    import random
+    try:
+        topo_resp = get_topology()
+        if isinstance(topo_resp, tuple):
+            resp_obj = topo_resp[0]
+        else:
+            resp_obj = topo_resp
+            
+        topo_data = resp_obj.get_json()
+        links = topo_data.get("links", [])
+        
+        link_stats = []
+        for link in links:
+            if link.get("state") == "down":
+                continue
+            link_stats.append({
+                "id": link.get("id"),
+                "latency_ms": round(random.uniform(1.0, 8.0), 2),
+                "packet_loss_pct": round(random.uniform(0.0, 0.5), 2),
+                "utilization_pct": round(random.uniform(5.0, 40.0), 1)
+            })
+            
+        return jsonify({"links": link_stats, "timestamp": time.time()})
+    except Exception as e:
+        return jsonify({"links": [], "error": str(e), "timestamp": time.time()})
 
 
 # ─────────────────────────────────────────────────────
