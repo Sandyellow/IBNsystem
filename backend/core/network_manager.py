@@ -139,51 +139,68 @@ class NetworkManager:
 
     async def _detect_anomalies(self):
         utilizations = []
+        current_anomalies = set()
+        
         for link in self.topology.links:
             if link.state == LinkState.DOWN:
                 continue
 
             if link.latency_ms and link.latency_ms > THRESHOLDS["latency_ms"]:
-                alert = Alert(
-                    "HIGH_LATENCY", "warning",
-                    f"高延迟告警: {link.source}↔{link.target} = {link.latency_ms:.1f}ms",
-                    {"link_id": link.id, "latency_ms": link.latency_ms},
-                )
-                self.alerts.append(alert)
-                await self._notify_alert(alert)
+                key = f"latency_{link.id}"
+                current_anomalies.add(key)
+                if key not in getattr(self, '_active_anomalies', set()):
+                    alert = Alert(
+                        "HIGH_LATENCY", "warning",
+                        f"高延迟告警: {link.source}↔{link.target} = {link.latency_ms:.1f}ms",
+                        {"link_id": link.id, "latency_ms": link.latency_ms},
+                    )
+                    self.alerts.append(alert)
+                    await self._notify_alert(alert)
 
             if link.packet_loss_pct and link.packet_loss_pct > THRESHOLDS["packet_loss_pct"]:
-                alert = Alert(
-                    "PACKET_LOSS", "warning",
-                    f"丢包告警: {link.source}↔{link.target} = {link.packet_loss_pct:.1f}%",
-                    {"link_id": link.id, "packet_loss_pct": link.packet_loss_pct},
-                )
-                self.alerts.append(alert)
-                await self._notify_alert(alert)
+                key = f"loss_{link.id}"
+                current_anomalies.add(key)
+                if key not in getattr(self, '_active_anomalies', set()):
+                    alert = Alert(
+                        "PACKET_LOSS", "warning",
+                        f"丢包告警: {link.source}↔{link.target} = {link.packet_loss_pct:.1f}%",
+                        {"link_id": link.id, "packet_loss_pct": link.packet_loss_pct},
+                    )
+                    self.alerts.append(alert)
+                    await self._notify_alert(alert)
 
             if link.utilization_pct is not None:
                 utilizations.append(link.utilization_pct)
                 if link.utilization_pct > THRESHOLDS["utilization_pct"]:
-                    alert = Alert(
-                        "BANDWIDTH_EXCEED", "warning",
-                        f"带宽超限: {link.source}↔{link.target} = {link.utilization_pct:.1f}%",
-                        {"link_id": link.id, "utilization_pct": link.utilization_pct},
-                    )
-                    self.alerts.append(alert)
-                    await self._notify_alert(alert)
+                    key = f"bw_{link.id}"
+                    current_anomalies.add(key)
+                    if key not in getattr(self, '_active_anomalies', set()):
+                        alert = Alert(
+                            "BANDWIDTH_EXCEED", "warning",
+                            f"带宽超限: {link.source}↔{link.target} = {link.utilization_pct:.1f}%",
+                            {"link_id": link.id, "utilization_pct": link.utilization_pct},
+                        )
+                        self.alerts.append(alert)
+                        await self._notify_alert(alert)
 
         # 负载均衡检测
         if len(utilizations) >= 2:
             max_u = max(utilizations)
             min_u = min(utilizations)
             if (max_u - min_u) > THRESHOLDS["load_imbalance_pct"]:
-                alert = Alert(
-                    "LOAD_IMBALANCE", "warning",
-                    f"负载不均衡: 最高 {max_u:.1f}% vs 最低 {min_u:.1f}%",
-                    {"max_utilization": max_u, "min_utilization": min_u},
-                )
-                self.alerts.append(alert)
-                await self._notify_alert(alert)
+                key = "load_imbalance"
+                current_anomalies.add(key)
+                if key not in getattr(self, '_active_anomalies', set()):
+                    alert = Alert(
+                        "LOAD_IMBALANCE", "warning",
+                        f"负载不均衡: 最高 {max_u:.1f}% vs 最低 {min_u:.1f}%",
+                        {"max_utilization": max_u, "min_utilization": min_u},
+                    )
+                    self.alerts.append(alert)
+                    await self._notify_alert(alert)
+
+        # 更新当前活跃的告警状态
+        self._active_anomalies = current_anomalies
 
         # 保留最近 100 条告警
         self.alerts = self.alerts[-100:]

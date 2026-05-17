@@ -11,6 +11,7 @@ const useStore = create((set, get) => ({
   // ─── 意图历史 ─────────────────────────
   intentHistory: [],
   isProcessing: false,
+  isInitialLoading: true,
 
   // ─── Actions ──────────────────────────
   setTopology: (topology) => set({ topology }),
@@ -78,6 +79,8 @@ const useStore = create((set, get) => ({
       })
     } catch (e) {
       console.warn('初始数据加载失败:', e.message)
+    } finally {
+      set({ isInitialLoading: false })
     }
   },
 

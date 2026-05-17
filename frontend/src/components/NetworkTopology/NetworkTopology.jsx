@@ -180,12 +180,35 @@ export default function NetworkTopology() {
   useEffect(() => {
     if (!topology) return
     const links = topology.links || []
-    const newNodes = toFlowNodes(topology.nodes || [], links)
-    setNodes(newNodes)
-    setEdges(toFlowEdges(links, newNodes))
-  }, [topology])
+    
+    setNodes(currentNodes => {
+      const posMap = new Map(currentNodes.map(n => [n.id, n.position]))
+      const calculatedNodes = toFlowNodes(topology.nodes || [], links)
+      
+      const mergedNodes = calculatedNodes.map(n => {
+        if (posMap.has(n.id)) {
+          return { ...n, position: posMap.get(n.id) }
+        }
+        return n
+      })
+      
+      setEdges(toFlowEdges(links, mergedNodes))
+      return mergedNodes
+    })
+  }, [topology, setNodes, setEdges])
 
+  const isInitialLoading = useStore(s => s.isInitialLoading)
   const isEmpty = !topology?.nodes?.length
+
+  if (isInitialLoading) {
+    return (
+      <div className="topology-canvas">
+        <div className="empty-topology">
+          <div className="empty-topology-text">正在加载网络拓扑...</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="topology-canvas">
