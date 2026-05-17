@@ -176,7 +176,7 @@ def _build_topology_from_stats():
         # 获取端口状态，检测是否有宕机的端口
         down_links = set()
         for dpid in dpids:
-            node_id = f"s{dpid}"
+            node_id = f"s{_dpid_int(dpid)}"
             pd_resp = requests.get(f"{RYU_BASE}/stats/portdesc/{dpid}", timeout=5)
             port_data = safe_json(pd_resp)
             port_count = 0

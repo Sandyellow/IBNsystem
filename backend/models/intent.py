@@ -55,6 +55,7 @@ class ValidationLayer(str, Enum):
     PARAM_RANGE = "param_range"
     SAFETY = "safety"
     CONFLICT = "conflict"
+    CONFIDENCE = "confidence"
 
 
 class ValidationResult(BaseModel):
