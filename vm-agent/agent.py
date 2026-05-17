@@ -375,9 +375,16 @@ def _apply_flow(policy):
     dpid     = policy.get("dpid", "1")
     match    = policy.get("match", {})
     actions_raw = policy.get("actions", [])
+    intent_id = policy.get("intent_id", "")
+
+    cookie = 0
+    if intent_id:
+        import hashlib
+        cookie = int(hashlib.md5(intent_id.encode()).hexdigest()[:15], 16)
 
     flow_entry = {
         "dpid": _dpid_int(dpid),
+        "cookie": cookie,
         "priority": policy.get("priority", 100),
         "idle_timeout": policy.get("idle_timeout", 0),
         "hard_timeout": policy.get("hard_timeout", 0),
@@ -385,23 +392,28 @@ def _apply_flow(policy):
         "actions": [],
     }
 
-    if match.get("ipv4_src"):
-        flow_entry["match"]["ipv4_src"] = match["ipv4_src"]
+    for k, v in match.items():
+        if v is not None:
+            flow_entry["match"][k] = v
+            
+    if ("ipv4_src" in match or "ipv4_dst" in match) and "eth_type" not in flow_entry["match"]:
         flow_entry["match"]["eth_type"] = 0x0800
-    if match.get("ipv4_dst"):
-        flow_entry["match"]["ipv4_dst"] = match["ipv4_dst"]
-        flow_entry["match"]["eth_type"] = 0x0800
+    elif ("ipv6_src" in match or "ipv6_dst" in match) and "eth_type" not in flow_entry["match"]:
+        flow_entry["match"]["eth_type"] = 0x86DD
 
     for action in actions_raw:
         atype = action.get("type", "")
         if atype == "output":
             flow_entry["actions"].append({"type": "OUTPUT", "port": action.get("value", "NORMAL")})
         elif atype == "drop":
-            flow_entry["actions"] = []
+            flow_entry["instructions"] = [{"type": "CLEAR_ACTIONS"}]
+            del flow_entry["actions"]
             break
         elif atype == "meter":
             flow_entry["actions"].append({"type": "METER", "meter_id": action.get("value")})
         elif atype == "delete":
+            if cookie != 0:
+                flow_entry["cookie_mask"] = 0xFFFFFFFFFFFFFFFF
             resp = requests.delete(f"{RYU_BASE}/stats/flowentry/delete", json=flow_entry, timeout=5)
             return jsonify({"success": resp.ok, "ryu_status": resp.status_code})
 

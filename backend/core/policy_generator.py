@@ -227,12 +227,22 @@ class PolicyGenerator:
 
     def _find_dpid(self, src_node, dst_node, topology: Topology) -> Optional[str]:
         """找到连接源/目节点的交换机 dpid"""
+        for node in topology.nodes:
+            if node.type == NodeType.SWITCH and node.dpid:
+                if node.id in [src_node, dst_node]:
+                    return node.dpid
+                    
         for link in topology.links:
-            for node in topology.nodes:
-                if node.type == NodeType.SWITCH and node.dpid:
-                    if link.source == node.id or link.target == node.id:
-                        if link.source in [src_node, dst_node] or link.target in [src_node, dst_node]:
-                            return node.dpid
+            connected_target = None
+            if link.source in [src_node, dst_node]:
+                connected_target = link.target
+            elif link.target in [src_node, dst_node]:
+                connected_target = link.source
+                
+            if connected_target:
+                for node in topology.nodes:
+                    if node.id == connected_target and node.type == NodeType.SWITCH and node.dpid:
+                        return node.dpid
         return None
 
     def _first_switch_dpid(self, topology: Topology) -> Optional[str]:
