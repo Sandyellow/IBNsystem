@@ -183,20 +183,7 @@ sudo bash ~/Desktop/vm-agent/stop.sh
 
 ---
 
-## 七、故障排查
-
-| 症状 | 可能原因 | 解决方法 |
-|------|---------|---------|
-| 前端显示「VM 未连接」 | VM Agent 未启动 | `sudo bash startup.sh` |
-| 拓扑无节点 | Mininet 未运行或 LLDP 未就绪 | 确认 Ryu 启动带有 `--observe-links` 参数 |
-| 意图解析失败（LLM 错误）| API Key 未配置 | 检查 `backend/.env` |
-| 意图置信度低（< 0.6）| 描述不清晰 | 参考上面的示例格式 |
-| 限速/封锁无效 | 流表未匹配 | 主机需要有 IP（在 Mininet 中执行 `pingall`）|
-| Ryu 拓扑报错 | ryu.topology 模块未加载 | 系统采用纯 LLDP 发现，需确保 Ryu 启动参数正确 |
-
----
-
-## 八、API 文档
+## 七、API 文档
 
 后端 Swagger 文档：http://localhost:8000/docs
 
@@ -206,4 +193,3 @@ sudo bash ~/Desktop/vm-agent/stop.sh
 - `GET  /api/topology` — 获取当前拓扑（基于 Ryu LLDP 实时发现）
 - `GET  /api/network/status` — 获取网络状态
 - `WS   /ws` — WebSocket 实时推送
-
