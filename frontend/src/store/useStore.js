@@ -67,15 +67,17 @@ const useStore = create((set, get) => ({
 
   fetchInitialData: async () => {
     try {
-      const [topoResp, statusResp, alertsResp] = await Promise.all([
+      const [topoResp, statusResp, alertsResp, historyResp] = await Promise.all([
         api.get('/topology'),
         api.get('/network/status'),
         api.get('/alerts'),
+        api.get('/intent/records'),
       ])
       set({
         topology: topoResp.data,
         networkStatus: statusResp.data,
         alerts: alertsResp.data.alerts || [],
+        intentHistory: historyResp.data || [],
       })
     } catch (e) {
       console.warn('初始数据加载失败:', e.message)

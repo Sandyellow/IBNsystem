@@ -221,10 +221,11 @@ body { overflow: hidden; height: 100vh; }
   overflow: hidden;
 }
 .intent-header {
-  padding: 14px 16px 10px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-card);
 }
-.intent-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.intent-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; color: var(--color-text-primary); }
 .intent-subtitle { font-size: 11px; color: var(--color-text-muted); }
 
 .intent-history {
@@ -238,12 +239,13 @@ body { overflow: hidden; height: 100vh; }
 .intent-entry { display: flex; flex-direction: column; gap: 6px; }
 
 .bubble {
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  border-radius: 12px;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
   max-width: 100%;
   word-break: break-word;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 .bubble-user {
   background: var(--color-primary);
@@ -252,8 +254,15 @@ body { overflow: hidden; height: 100vh; }
   border-bottom-right-radius: 4px;
 }
 .bubble-system {
-  background: var(--color-bg-sidebar);
+  background: var(--color-bg-card);
   border: 1px solid var(--color-border);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+.bubble-warning {
+  background: var(--color-warning-light);
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
   align-self: flex-start;
   border-bottom-left-radius: 4px;
 }
@@ -261,6 +270,16 @@ body { overflow: hidden; height: 100vh; }
   background: var(--color-danger-light);
   border: 1px solid #fca5a5;
   color: var(--color-danger);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+.bubble-dev {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  overflow-x: auto;
+  align-self: stretch;
+  border-radius: 8px;
+  font-size: 11px;
 }
 
 .intent-status-badge {
@@ -282,7 +301,7 @@ body { overflow: hidden; height: 100vh; }
 
 .validation-report {
   font-size: 11px;
-  background: var(--color-bg-sidebar);
+  background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -291,46 +310,91 @@ body { overflow: hidden; height: 100vh; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--color-border);
 }
 .validation-layer:last-child { border-bottom: none; }
-.vl-icon { font-size: 12px; }
-.vl-label { color: var(--color-text-muted); width: 90px; flex-shrink: 0; }
+.vl-icon { display: flex; align-items: center; justify-content: center; width: 14px; }
+.vl-label { color: var(--color-text-muted); width: 64px; flex-shrink: 0; font-weight: 500; }
 .vl-msg { flex: 1; color: var(--color-text-primary); }
 
-.confirm-actions { display: flex; gap: 8px; margin-top: 4px; }
+.confirm-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* ─── Intent Inner UI ─── */
+.intent-system-wrapper { display: flex; flex-direction: column; gap: 6px; }
+.parsed-intent-title { font-weight: 600; margin-bottom: 6px; color: var(--color-text-primary); }
+.parsed-intent-meta { font-size: 11px; color: var(--color-text-muted); }
+.parsed-intent-meta code { background: var(--color-bg-sidebar); padding: 2px 6px; border-radius: 4px; color: var(--color-primary); }
+.result-header { font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.code-block {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  background: var(--color-bg-sidebar);
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  color: var(--color-text-secondary);
+}
+.dev-toggle-container { margin-top: 2px; text-align: right; }
+.btn-dev-toggle {
+  background: transparent; border: none; font-size: 11px;
+  color: var(--color-text-muted); cursor: pointer; display: inline-flex;
+  align-items: center; gap: 4px; padding: 4px 6px; border-radius: 4px;
+}
+.btn-dev-toggle:hover { background: var(--color-bg-sidebar); color: var(--color-text-primary); }
+.dev-section-title { color: #569cd6; font-weight: bold; margin-bottom: 4px; }
+.dev-code { margin: 0; white-space: pre-wrap; font-family: monospace; }
+.intent-suggestions { padding: 16px 0; }
+.suggestions-title { font-size: 12px; color: var(--color-text-muted); margin-bottom: 12px; font-weight: 500; }
+.suggestion-chip {
+  padding: 8px 12px; background: var(--color-bg-card);
+  border: 1px solid var(--color-border); border-radius: 8px;
+  margin-bottom: 8px; cursor: pointer; font-size: 12px;
+  color: var(--color-text-secondary); transition: var(--transition);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+}
+.suggestion-chip:hover { border-color: var(--color-primary); color: var(--color-primary); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+
 
 .intent-input-area {
-  padding: 12px;
+  padding: 16px;
   border-top: 1px solid var(--color-border);
   background: var(--color-bg-card);
 }
-.intent-input-row {
+.intent-input-wrapper {
   display: flex;
-  gap: 8px;
   align-items: flex-end;
+  gap: 10px;
+  background: var(--color-bg-sidebar);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 12px;
+  padding: 4px;
+  transition: var(--transition);
+}
+.intent-input-wrapper:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+  background: white;
 }
 .intent-textarea {
   flex: 1;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
   font-size: 13px;
   font-family: inherit;
   resize: none;
-  min-height: 60px;
+  min-height: 20px;
   max-height: 120px;
-  transition: var(--transition);
-  background: var(--color-bg-sidebar);
   color: var(--color-text-primary);
   outline: none;
+  line-height: 1.5;
 }
-.intent-textarea:focus { border-color: var(--color-primary); background: white; box-shadow: 0 0 0 3px var(--color-primary-light); }
 .intent-textarea::placeholder { color: var(--color-text-muted); }
 .intent-send-btn {
-  width: 40px; height: 40px;
-  border-radius: var(--radius-md);
+  width: 36px; height: 36px;
+  border-radius: 8px;
   border: none;
   background: var(--color-primary);
   color: white;
@@ -340,10 +404,35 @@ body { overflow: hidden; height: 100vh; }
   cursor: pointer;
   flex-shrink: 0;
   transition: var(--transition);
-  font-size: 16px;
+  margin-bottom: 2px;
+  margin-right: 2px;
 }
-.intent-send-btn:hover:not(:disabled) { background: var(--color-primary-dark); }
-.intent-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.intent-send-btn:hover:not(:disabled) { background: var(--color-primary-dark); transform: scale(1.05); }
+.intent-send-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-text-muted); }
+.intent-hint { font-size: 11px; color: var(--color-text-muted); text-align: center; margin-top: 8px; }
+
+/* Utility Classes */
+.text-success { color: var(--color-success) !important; }
+.text-danger { color: var(--color-danger) !important; }
+.text-warning { color: var(--color-warning) !important; }
+.text-muted { color: var(--color-text-muted) !important; }
+.text-primary { color: var(--color-primary) !important; }
+.bg-success-light { background: var(--color-success-light) !important; }
+.bg-danger-light { background: var(--color-danger-light) !important; }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-1\.5 { gap: 6px; }
+.gap-2 { gap: 8px; }
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.mb-2 { margin-bottom: 8px; }
+.mr-1 { margin-right: 4px; }
+.w-3 { width: 12px; } .h-3 { height: 12px; }
+.w-4 { width: 16px; } .h-4 { height: 16px; }
+.inline { display: inline; }
+.text-xs { font-size: 11px; }
+.animate-spin { animation: spin 1s linear infinite; }
 
 /* ─── Node styles (React Flow) ────────────────────── */
 .topo-node {
