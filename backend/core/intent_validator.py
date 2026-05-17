@@ -195,12 +195,12 @@ class IntentValidator:
     def _validate_confidence(self, intent: ParsedIntent) -> ValidationResult:
         if intent.confidence < 0.6:
             return ValidationResult(
-                layer=ValidationLayer.CONFLICT, passed=False,
+                layer=ValidationLayer.CONFIDENCE, passed=False,
                 message=f"LLM 置信度过低 ({intent.confidence:.2f} < 0.6)，请用户澄清意图",
                 details={"confidence": intent.confidence},
             )
         return ValidationResult(
-            layer=ValidationLayer.CONFLICT, passed=True,
+            layer=ValidationLayer.CONFIDENCE, passed=True,
             message=f"置信度合格 ({intent.confidence:.2f})",
         )
 

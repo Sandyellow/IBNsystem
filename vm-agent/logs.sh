@@ -44,6 +44,10 @@ case "$SERVICE" in
             echo -e "${CYAN}══ IBN 系统实时日志（所有服务）按 Ctrl+C 退出 ══${NC}"
             echo -e "  ${GREEN}[ryu]${NC} Ryu 控制器  ${YELLOW}[mininet]${NC} Mininet  ${BLUE}[agent]${NC} VM Agent"
             echo "────────────────────────────────────────────"
+            
+            # 使用 trap 清理后台进程
+            trap 'kill $(jobs -p) 2>/dev/null; exit' SIGINT SIGTERM EXIT
+            
             # 用管道加前缀颜色区分
             (
                 tail -f "$LOG_DIR/ryu.log"     | sed "s/^/${GREEN}[ryu    ]${NC} /" &
