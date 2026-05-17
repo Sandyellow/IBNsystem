@@ -85,11 +85,12 @@ class PolicyGenerator:
             intent_id=intent_id,
         )
         rollback = NetworkPolicy(
-            policy_type=PolicyType.FLOW_RULE,
+            policy_type=PolicyType.METER,
             dpid=dpid,
-            priority=0,
+            priority=200,
             match=FlowMatch(ipv4_src=src_ip, ipv4_dst=dst_ip),
-            actions=[FlowAction(type="delete_meter", value=meter_id)],
+            actions=[FlowAction(type="delete", value=meter_id)],
+            meter_id=meter_id,
             description=f"回滚: 删除限速 meter {meter_id}",
             intent_id=intent_id,
         )
@@ -163,13 +164,15 @@ class PolicyGenerator:
 
     def _gen_redirect(self, intent, dpid, src_ip, dst_ip, intent_id):
         via = intent.parameters.get("via_node", "")
+        out_port = self._resolve_port(dpid, via) if via else "NORMAL"
+        
         policy = NetworkPolicy(
             policy_type=PolicyType.FLOW_RULE,
             dpid=dpid,
             priority=250,
             match=FlowMatch(ipv4_src=src_ip, ipv4_dst=dst_ip),
-            actions=[FlowAction(type="output", value=via)],
-            description=f"重定向 {intent.source_node}→{intent.target_node} 经由 {via}",
+            actions=[FlowAction(type="output", value=out_port)],
+            description=f"重定向 {intent.source_node}→{intent.target_node} 经由 {via} (端口 {out_port})",
             intent_id=intent_id,
         )
         rollback = NetworkPolicy(
@@ -246,5 +249,23 @@ class PolicyGenerator:
                 return node.ip
         return None
 
+    def _resolve_port(self, dpid: str, target: str):
+        """根据已知拓扑结构将节点名称解析为出端口"""
+        try:
+            dpid_int = str(int(str(dpid), 16))
+        except (ValueError, TypeError):
+            dpid_int = str(dpid)
+            
+        if dpid_int == "1":
+            return 1 if target in ("s2", "h1", "h2") else 2
+        elif dpid_int == "2":
+            if target == "h1": return 2
+            if target == "h2": return 3
+            return 1
+        elif dpid_int == "3":
+            if target == "h3": return 2
+            if target == "h4": return 3
+            return 1
+        return "NORMAL"
 
 policy_generator = PolicyGenerator()

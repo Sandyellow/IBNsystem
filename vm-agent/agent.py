@@ -416,11 +416,22 @@ def _apply_meter(policy):
 
     meter_entry = {
         "dpid": _dpid_int(dpid),
-        "flags": ["KBPS"],
         "meter_id": meter_id,
-        "bands": [{"type": "DROP", "rate": rate_kbps, "burst_size": 10}],
     }
-    resp = requests.post(f"{RYU_BASE}/stats/meterentry/add", json=meter_entry, timeout=5)
+
+    actions_raw = policy.get("actions", [])
+    is_delete = any(a.get("type") == "delete" for a in actions_raw)
+
+    if is_delete:
+        _apply_flow(policy)  # 删除关联流表
+        resp = requests.post(f"{RYU_BASE}/stats/meterentry/delete", json=meter_entry, timeout=5)
+    else:
+        meter_entry["flags"] = ["KBPS"]
+        meter_entry["bands"] = [{"type": "DROP", "rate": rate_kbps, "burst_size": 10}]
+        resp = requests.post(f"{RYU_BASE}/stats/meterentry/add", json=meter_entry, timeout=5)
+        if resp.ok:
+            _apply_flow(policy)  # 添加关联流表
+            
     return jsonify({"success": resp.ok, "ryu_status": resp.status_code})
 
 
