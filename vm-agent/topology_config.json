@@ -1,0 +1,9 @@
+{
+  "hosts": [
+    {"id": "h1", "ip": "10.0.0.1", "mac": "00:00:00:00:00:01", "connected_switch": "s2", "port": 1},
+    {"id": "h2", "ip": "10.0.0.2", "mac": "00:00:00:00:00:02", "connected_switch": "s2", "port": 2},
+    {"id": "h3", "ip": "10.0.0.3", "mac": "00:00:00:00:00:03", "connected_switch": "s3", "port": 1},
+    {"id": "h4", "ip": "10.0.0.4", "mac": "00:00:00:00:00:04", "connected_switch": "s3", "port": 2}
+  ],
+  "comment": "与 mininet_topo.py 保持一致，修改拓扑时同步更新此文件"
+}

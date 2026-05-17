@@ -6,10 +6,22 @@ from flask import Flask, jsonify, request
 import subprocess
 import requests
 import time
+import json
+import os
 
 app = Flask(__name__)
 
 RYU_BASE = "http://127.0.0.1:8080"   # Ryu REST API 本地地址
+TOPO_CONFIG = os.path.join(os.path.dirname(__file__), "topology_config.json")
+
+
+def load_host_config():
+    """从 topology_config.json 读取主机信息，文件不存在时返回空列表"""
+    try:
+        with open(TOPO_CONFIG, "r") as f:
+            return json.load(f).get("hosts", [])
+    except Exception:
+        return []
 
 
 def safe_json(resp):
@@ -166,16 +178,35 @@ def _build_topology_from_stats():
         for dpid in dpids:
             node_id = f"s{dpid}"
             dpid_to_node[dpid] = node_id
-            # 获取端口描述（可选）
+        # 获取端口状态，检测是否有宕机的端口
+        down_links = set()
+        for dpid in dpids:
+            node_id = f"s{dpid}"
             pd_resp = requests.get(f"{RYU_BASE}/stats/portdesc/{dpid}", timeout=5)
             port_data = safe_json(pd_resp)
-            port_count = len(port_data.get(str(dpid), [])) if port_data else 0
+            port_count = 0
+            if port_data:
+                ports = port_data.get(str(dpid), [])
+                port_count = len(ports)
+                for p in ports:
+                    # OFPPS_LINK_DOWN 位为 1 表示链路断开
+                    if p.get("state", 0) & 1:
+                        name = p.get("name", "")
+                        # 根据接口名称映射到具体的拓扑链路
+                        if name in ["s1-eth1", "s2-eth1"]: down_links.add("s1-s2")
+                        if name in ["s1-eth2", "s3-eth1"]: down_links.add("s1-s3")
+                        if name in ["s2-eth2"]: down_links.add("h1-s2")
+                        if name in ["s2-eth3"]: down_links.add("h2-s2")
+                        if name in ["s3-eth2"]: down_links.add("h3-s3")
+                        if name in ["s3-eth3"]: down_links.add("h4-s3")
+
             nodes.append({
                 "id": node_id, "type": "switch", "label": node_id,
                 "dpid": str(dpid), "port_count": port_count,
             })
 
         # 从流表中提取已学习到的主机 IP
+
         host_ips = set()
         for dpid in dpids:
             fl_resp = requests.get(f"{RYU_BASE}/stats/flow/{dpid}", timeout=5)
@@ -189,28 +220,38 @@ def _build_topology_from_stats():
                     if ip and not ip.startswith("10.0.0.255"):
                         host_ips.add(ip)
 
-        # 将已发现的主机 IP 构建为节点
+        # ── 从 topology_config.json 读取主机（固定拓扑）────
+        host_config = load_host_config()
         host_nodes = []
-        for i, ip in enumerate(sorted(host_ips), start=1):
-            host_id = f"h{i}"
+        host_links = []
+        for h in host_config:
             host_nodes.append({
-                "id": host_id, "type": "host", "label": host_id,
-                "ip": ip, "mac": None,
+                "id": h["id"], "type": "host",
+                "label": h["id"], "ip": h["ip"], "mac": h.get("mac"),
             })
+            connected_sw = h.get("connected_switch")
+            if connected_sw and connected_sw in [n["id"] for n in nodes]:
+                link_id = f"{h['id']}-{connected_sw}"
+                link_state = "down" if link_id in down_links else "up"
+                host_links.append({
+                    "id": link_id,
+                    "source": h["id"], "target": connected_sw, "state": link_state,
+                })
         nodes.extend(host_nodes)
 
-        # 链路：交换机间链路根据已知的 mininet 拓扑（s1-s2, s1-s3）
-        # 这里使用保守策略：只有当至少 2 个交换机存在时才添加默认链路
+        # 链路：交换机间链路（星型推断）+ 主机链路
         link_list = []
         sw_ids = [n["id"] for n in nodes if n["type"] == "switch"]
-        # 星型拓扑推断：第一个交换机为核心，其余为边缘
         if len(sw_ids) >= 2:
             core = sw_ids[0]
             for edge_sw in sw_ids[1:]:
+                link_id = f"{core}-{edge_sw}"
+                link_state = "down" if link_id in down_links else "up"
                 link_list.append({
-                    "id": f"{core}-{edge_sw}",
-                    "source": core, "target": edge_sw, "state": "up",
+                    "id": link_id,
+                    "source": core, "target": edge_sw, "state": link_state,
                 })
+        link_list.extend(host_links)
 
         return jsonify({"nodes": nodes, "links": link_list,
                         "timestamp": time.time(), "source": "stats_fallback",
@@ -218,6 +259,7 @@ def _build_topology_from_stats():
 
     except Exception as e:
         return jsonify({"nodes": [], "links": [], "error": str(e), "source": "stats_fallback"})
+
 
 
 def _legacy_host_links(hosts, mac_to_host, dpid_to_node):
