@@ -206,6 +206,13 @@ async def process_intent(req: IntentRequest, background_tasks: BackgroundTasks):
         updated_at=_now(),
     )
     _records[record.id] = record
+    
+    # 限制内存占用，保留最近的 200 条记录
+    if len(_records) > 200:
+        sorted_keys = sorted(_records.keys(), key=lambda k: _records[k].created_at)
+        for k in sorted_keys[:50]:
+            _records.pop(k, None)
+
     background_tasks.add_task(_process_intent, record)
     return {"intent_id": record.id, "status": record.status}
 

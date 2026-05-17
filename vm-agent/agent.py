@@ -41,7 +41,6 @@ def safe_json(resp):
 def ping():
     return jsonify({"status": "ok", "timestamp": time.time()})
 
-
 # ─────────────────────────────────────────────────────
 #  诊断端点 — 查看 Ryu 原始返回（调试用）
 #  在 Ubuntu VM 上访问: http://127.0.0.1:5000/debug/ryu
@@ -67,7 +66,6 @@ def debug_ryu():
         except Exception as e:
             result[path] = {"error": str(e)}
     return jsonify(result)
-
 
 # ─────────────────────────────────────────────────────
 #  拓扑 — 双策略获取拓扑
@@ -97,10 +95,7 @@ def get_topology():
             dpid_to_node = {}
             for sw in switches:
                 dpid = sw.get("dpid", "")
-                try:
-                    node_id = f"s{int(dpid, 16)}"
-                except (ValueError, TypeError):
-                    node_id = f"s_{dpid}"
+                node_id = f"s{_dpid_int(dpid)}"
                 dpid_to_node[dpid] = node_id
                 nodes.append({
                     "id": node_id, "type": "switch", "label": node_id,
@@ -176,7 +171,7 @@ def _build_topology_from_stats():
         dpid_to_node = {}
 
         for dpid in dpids:
-            node_id = f"s{dpid}"
+            node_id = f"s{_dpid_int(dpid)}"
             dpid_to_node[dpid] = node_id
         # 获取端口状态，检测是否有宕机的端口
         down_links = set()
@@ -260,27 +255,6 @@ def _build_topology_from_stats():
     except Exception as e:
         return jsonify({"nodes": [], "links": [], "error": str(e), "source": "stats_fallback"})
 
-
-
-def _legacy_host_links(hosts, mac_to_host, dpid_to_node):
-    # 主机到交换机链路（使用 Ryu 返回的 port.dpid 精确匹配）
-    link_list = []
-    for host in hosts:
-        mac     = host.get("mac", "")
-        host_id = mac_to_host.get(mac)
-        if not host_id:
-            continue
-        port_info    = host.get("port", {})
-        sw_dpid      = port_info.get("dpid", "")
-        connected_sw = dpid_to_node.get(sw_dpid)
-        if connected_sw:
-            link_list.append({
-                "id": f"{host_id}-{connected_sw}",
-                "source": host_id,
-                "target": connected_sw,
-                "state": "up",
-            })
-    return link_list
 
 
 
@@ -461,9 +435,15 @@ def rollback_policy():
 @app.route("/mininet/exec", methods=["POST"])
 def exec_mininet_cmd():
     cmd = request.json.get("command", "")
+    import re
+    if re.search(r'[;&|`$><]', cmd):
+        return jsonify({"success": False, "error": "包含非法字符，禁止执行"})
+    
+    import shlex
     try:
+        cmd_parts = shlex.split(cmd)
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=30
+            cmd_parts, capture_output=True, text=True, timeout=30
         )
         return jsonify({"success": True, "output": result.stdout, "stderr": result.stderr})
     except subprocess.TimeoutExpired:
@@ -473,4 +453,4 @@ def exec_mininet_cmd():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, threaded=True, debug=False)

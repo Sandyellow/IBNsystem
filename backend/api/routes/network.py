@@ -1,5 +1,6 @@
 """拓扑、网络信息、告警 API 路由"""
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import json
 from core.network_manager import network_manager
 from api.websocket_manager import ws_manager
 
@@ -54,7 +55,7 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         # 立即推送当前拓扑
         await ws.send_text(
-            __import__("json").dumps({
+            json.dumps({
                 "type": "topology_update",
                 "data": network_manager.get_topology_dict()
             }, ensure_ascii=False)
