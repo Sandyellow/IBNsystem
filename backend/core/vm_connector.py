@@ -14,16 +14,21 @@ logger = logging.getLogger(__name__)
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
+import asyncio
+
 class VMConnector:
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
+        self._lock = asyncio.Lock()
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=settings.VM_AGENT_URL,
-                timeout=TIMEOUT,
-            )
+            async with self._lock:
+                if self._client is None or self._client.is_closed:
+                    self._client = httpx.AsyncClient(
+                        base_url=settings.VM_AGENT_URL,
+                        timeout=TIMEOUT,
+                    )
         return self._client
 
     async def close(self):

@@ -12,14 +12,18 @@ from models.policy import NetworkPolicy, PolicyType, FlowMatch, FlowAction, Poli
 
 logger = logging.getLogger(__name__)
 
+import threading
+
 # 默认 meter id 起始值（避免冲突）
 _METER_ID_COUNTER = 100
+_METER_LOCK = threading.Lock()
 
 
 def _next_meter_id() -> int:
     global _METER_ID_COUNTER
-    _METER_ID_COUNTER += 1
-    return _METER_ID_COUNTER
+    with _METER_LOCK:
+        _METER_ID_COUNTER += 1
+        return _METER_ID_COUNTER
 
 
 class PolicyGenerator:
