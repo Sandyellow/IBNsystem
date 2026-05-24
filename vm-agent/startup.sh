@@ -61,7 +61,7 @@ log "启动 Ryu 控制器..."
 nohup "$RYU_BIN" \
     "$SCRIPT_DIR/ryu_controller.py" \
     ryu.app.ofctl_rest \
-    ryu.topology.switches \
+    ryu.app.rest_topology \
     --observe-links \
     --ofp-tcp-listen-port 6633 \
     > "$LOG_DIR/ryu.log" 2>&1 &
