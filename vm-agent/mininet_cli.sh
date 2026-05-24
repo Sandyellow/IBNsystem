@@ -25,7 +25,7 @@ done
 
 # ── 停止后台 Mininet（避免端口冲突）────────────────────
 log "停止后台 Mininet..."
-pkill -f "mininet_topo.py" 2>/dev/null || true
+pkill -f "mininet_topology.py" 2>/dev/null || true
 sudo mn -c 2>/dev/null || true
 sleep 2
 
@@ -70,10 +70,10 @@ echo ""
 echo -e "${GREEN}══════════════════════════════════════════════${NC}"
 
 # ── 启动带 CLI 的 Mininet ──────────────────────────────
-sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topo.py" --cli
+sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topology.py" --cli
 
 # ── CLI 退出后，重启后台 Mininet ────────────────────────
 log "CLI 已退出，重启后台 Mininet..."
-nohup sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topo.py" \
+nohup sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topology.py" \
     > "$LOG_DIR/mininet.log" 2>&1 &
 log "后台 Mininet 已重启 (PID: $!)"

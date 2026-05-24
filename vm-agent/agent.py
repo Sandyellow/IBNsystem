@@ -241,7 +241,7 @@ def get_stats():
 # ── 端口采样缓存：{dpid_portno: (timestamp, bytes_total)} ──
 _port_samples: dict = {}
 
-# 链路带宽上限（bps），与 mininet_topo.py 中 bw=100 Mbps 对应
+# 链路带宽上限（bps），与 mininet_topology.py 中 bw=100 Mbps 对应
 _LINK_BW_BPS = 100 * 1_000_000
 
 

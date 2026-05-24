@@ -22,7 +22,7 @@ err()  { echo -e "${RED}[IBN]${NC} $1"; }
 log "清理旧进程..."
 pkill -f ryu-manager       2>/dev/null || true
 pkill -f "python3 agent"   2>/dev/null || true
-pkill -f "mininet_topo"    2>/dev/null || true
+pkill -f "mininet_topology"    2>/dev/null || true
 mn -c 2>/dev/null || true
 sleep 2
 
@@ -112,5 +112,5 @@ echo ""
 
 # ── 步骤 3: 启动 Mininet (前台 CLI 模式) ───────────────
 log "启动 Mininet 拓扑 (前台 CLI 模式)..."
-sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topo.py" --cli
+sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topology.py" --cli
 

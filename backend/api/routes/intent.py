@@ -7,6 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
+from config import settings
 from models.intent import IntentRequest, IntentRecord, IntentStatus, IntentAction
 from core.intent_engine import intent_engine
 from core.intent_validator import intent_validator
@@ -32,12 +33,15 @@ def _now() -> float:
 async def _process_intent(record: IntentRecord):
     """完整意图处理流水线（后台任务）"""
     try:
-        # ── Step 1: LLM 解析（带重试）
+        # ── Step 1: LLM 解析（引擎负责 JSON 语法语义校验）
         record.status = IntentStatus.VALIDATING
         record.updated_at = _now()
         await ws_manager.broadcast_intent_update(record.model_dump())
 
-        intent, error, retries = await intent_engine.parse_with_retry(record.user_text)
+        intent, error, retries = await intent_engine.parse_with_retry(
+            record.user_text,
+            topology=network_manager.topology,
+        )
         record.llm_retries = retries
 
         if intent is None:
@@ -49,14 +53,14 @@ async def _process_intent(record: IntentRecord):
 
         record.parsed_intent = intent
 
-        # ── Step 2: 多层验证
+        # ── Step 2: 策略校验（验证能否下发执行）
         validation_report = await intent_validator.validate(intent, network_manager.topology)
         record.validation_report = validation_report
 
         if not validation_report.overall_passed:
             record.status = IntentStatus.REJECTED
             failed_layers = [l for l in validation_report.layers if not l.passed]
-            record.error_message = "验证未通过: " + "; ".join(l.message for l in failed_layers)
+            record.error_message = "策略校验未通过: " + "; ".join(l.message for l in failed_layers)
             record.updated_at = _now()
             await ws_manager.broadcast_intent_update(record.model_dump())
             return

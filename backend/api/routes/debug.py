@@ -98,9 +98,12 @@ async def debug_dry_run(req: DryRunRequest):
         "stages": {},
     }
 
-    # ── Stage 1: LLM 解析 ──
+    # ── Stage 1: LLM 解析（注入拓扑上下文） ──
     t0 = time.perf_counter()
-    intent, error, retries = await intent_engine.parse_with_retry(req.text)
+    intent, error, retries = await intent_engine.parse_with_retry(
+        req.text,
+        topology=network_manager.topology,
+    )
     llm_ms = round((time.perf_counter() - t0) * 1000, 1)
 
     result["stages"]["llm"] = {

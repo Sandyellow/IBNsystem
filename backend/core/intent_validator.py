@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 # ─── 参数范围约束 ─────────────────────────────────────────────────────────────
 PARAM_RULES = {
     IntentAction.RATE_LIMIT: {
-        "bandwidth_mbps": {"min": 0.1, "max": 10000, "required": True, "type": float},
+        "bandwidth_mbps": {"min": 0.1, "max": 10000, "type": float},
     },
     IntentAction.SET_PRIORITY: {
-        "priority": {"min": 1, "max": 65535, "required": True, "type": int},
+        "priority": {"min": 1, "max": 65535, "type": int},
     },
     IntentAction.REDIRECT_TRAFFIC: {
-        "via_node": {"required": True, "type": str},
+        "via_node": {"type": str},
     },
 }
 
@@ -157,8 +157,6 @@ class IntentValidator:
         for param, rule in rules.items():
             val = intent.parameters.get(param)
             if val is None:
-                if rule.get("required"):
-                    errors.append(f"缺少必填参数 '{param}'")
                 continue
             # 类型检查
             expected_type = rule.get("type")
