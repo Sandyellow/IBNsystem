@@ -34,19 +34,18 @@ redirect_traffic | query_stats | ping | set_priority | load_balance | query_topo
     "via_node": "<string, 仅 redirect_traffic>",
     "priority": <1-65535, 仅 set_priority>
   },
-  "confidence": <0.0-1.0>,
   "explanation": "<中文解释>"
 }
 
-规则: confidence<0.6 表示意图不清晰；只输出合法 JSON。"""
+规则: 只输出合法 JSON。"""
 
 FEW_SHOT = [
     {"role": "user", "content": "把 h1 到 h3 的流量限制在 10Mbps"},
-    {"role": "assistant", "content": '{"action":"rate_limit","source_node":"h1","target_node":"h3","parameters":{"bandwidth_mbps":10},"confidence":0.95,"explanation":"限制 h1→h3 带宽为 10Mbps"}'},
+    {"role": "assistant", "content": '{"action":"rate_limit","source_node":"h1","target_node":"h3","parameters":{"bandwidth_mbps":10},"explanation":"限制 h1→h3 带宽为 10Mbps"}'},
     {"role": "user", "content": "封锁 h2 和 h4 之间的通信"},
-    {"role": "assistant", "content": '{"action":"block_traffic","source_node":"h2","target_node":"h4","parameters":{},"confidence":0.92,"explanation":"阻断 h2 与 h4 之间双向流量"}'},
+    {"role": "assistant", "content": '{"action":"block_traffic","source_node":"h2","target_node":"h4","parameters":{},"explanation":"阻断 h2 与 h4 之间双向流量"}'},
     {"role": "user", "content": "帮我看看现在网络里有几个节点和链路"},
-    {"role": "assistant", "content": '{"action":"query_topology","source_node":null,"target_node":null,"parameters":{},"confidence":0.95,"explanation":"用户想查看当前的拓扑概览"}'},
+    {"role": "assistant", "content": '{"action":"query_topology","source_node":null,"target_node":null,"parameters":{},"explanation":"用户想查看当前的拓扑概览"}'},
 ]
 
 
@@ -67,32 +66,7 @@ def _build_topology_summary(topology: Topology) -> str:
     )
 
 
-def _validate_semantic(data: dict) -> List[str]:
-    """跨字段语义检查：捕获 source=target、参数与 action 不匹配等 Pydantic 无法覆盖的问题"""
-    errors: List[str] = []
-    action = data.get("action", "")
-    params = data.get("parameters") or {}
-    source = data.get("source_node")
-    target = data.get("target_node")
-
-    if source and target and source == target:
-        errors.append("source_node 和 target_node 不能相同")
-
-    if action == "rate_limit" and "bandwidth_mbps" not in params:
-        errors.append("rate_limit 操作需要提供 bandwidth_mbps 参数")
-    if action == "redirect_traffic" and "via_node" not in params:
-        errors.append("redirect_traffic 操作需要提供 via_node 参数")
-    if action == "set_priority" and "priority" not in params:
-        errors.append("set_priority 操作需要提供 priority 参数")
-
-    if action == "redirect_traffic":
-        via = params.get("via_node")
-        if via and source and via == source:
-            errors.append("via_node 不能与 source_node 相同")
-        if via and target and via == target:
-            errors.append("via_node 不能与 target_node 相同")
-
-    return errors
+# 语义校验已移至 models/intent.py 的 Pydantic validator 中
 
 
 class IntentEngine:
@@ -139,11 +113,20 @@ class IntentEngine:
             raw = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
             data = json.loads(raw)
 
-            semantic_errors = _validate_semantic(data)
-            if semantic_errors:
-                return None, "语义验证失败: " + "; ".join(semantic_errors)
+            if data.get("source_node") and data.get("target_node") and data.get("source_node") == data.get("target_node"):
+                return None, "语义验证失败: source_node 和 target_node 不能相同"
+                
+            if data.get("action") == "redirect_traffic":
+                via = data.get("parameters", {}).get("via_node")
+                source = data.get("source_node")
+                target = data.get("target_node")
+                if via and source and via == source:
+                    return None, "语义验证失败: via_node 不能与 source_node 相同"
+                if via and target and via == target:
+                    return None, "语义验证失败: via_node 不能与 target_node 相同"
 
             intent = ParsedIntent(**data)
+            
             return intent, ""
         except json.JSONDecodeError as e:
             return None, f"JSON解析失败: {e}"
