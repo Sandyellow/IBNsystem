@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.ryu_client import ryu_client
 from core.topo_manager import topo_manager
+from core.stats_manager import stats_manager
 from api.websocket_manager import ws_manager
 from api.routes.network import router as network_router
 from api.routes.intent import router as intent_router
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     # 启动：注册回调 → 启动拓扑轮询
     topo_manager.on_topology_update(ws_manager.broadcast_topology)
     await topo_manager.start_polling()
+    await stats_manager.start_polling(interval=3.0)
     
     # 启动后触发一次数据平面调和，补齐丢失的流表
     from core.policy_executor import policy_executor
@@ -35,6 +37,7 @@ async def lifespan(app: FastAPI):
     logger.info("IBN 系统 v2 已启动，直连 Ryu 轮询中...")
     yield
     # 关闭：停止轮询 → 关闭 Ryu 连接
+    await stats_manager.stop_polling()
     await topo_manager.stop_polling()
     await ryu_client.close()
     logger.info("IBN 系统已关闭")

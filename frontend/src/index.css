@@ -148,10 +148,12 @@ body { overflow: hidden; height: 100vh; }
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-strong);
   border-left: 3px solid transparent;
-  background: var(--color-bg-sidebar);
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
   animation: slide-in 0.25s ease;
   cursor: pointer;
   transition: var(--transition);
@@ -163,7 +165,7 @@ body { overflow: hidden; height: 100vh; }
 }
 .alert-item.critical { border-left-color: var(--color-danger); background: var(--color-danger-light); }
 .alert-item.warning { border-left-color: var(--color-warning); background: var(--color-warning-light); }
-.alert-item.info { border-left-color: var(--color-info); background: var(--color-info-light); }
+.alert-item.info { border-left-color: var(--color-info); background: #f8fafc; }
 .alert-icon { font-size: 14px; line-height: 1.4; }
 .alert-content { flex: 1; min-width: 0; }
 .alert-message { font-size: 12px; font-weight: 500; color: var(--color-text-primary); line-height: 1.3; }

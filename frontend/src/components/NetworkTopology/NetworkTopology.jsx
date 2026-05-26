@@ -12,6 +12,7 @@ import { Cpu, Server, Network } from 'lucide-react'
 // ─── 自定义节点 ──────────────────────────────────────
 function TopoNode({ data, selected }) {
   const isSwitch = data.type === 'switch'
+
   return (
     <div className={`topo-node ${isSwitch ? 'node-switch' : 'node-host'} ${selected ? 'selected' : ''}`}>
       {/* 顶部端口 (Target + Source 叠加) */}
@@ -158,17 +159,14 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
       sourceHandle: sHandle,
       targetHandle: tHandle,
       type: 'smoothstep',
-      animated: isActive || link.state === 'up',
+      animated: isActive,
       className: isActive ? 'edge-active-path' : '',
       style: {
-        stroke: isActive ? '#10b981' :
-                link.state === 'down'     ? '#ef4444' :
-                link.state === 'degraded' ? '#f59e0b' : '#6366f1',
+        stroke: isActive ? '#10b981' : '#6366f1',
         strokeWidth: isActive ? 3 : 2,
-        strokeDasharray: link.state === 'down' ? '6,4' : undefined,
+        strokeDasharray: '5,5', // 所有连线统一使用虚线
         filter: isActive ? 'drop-shadow(0 0 5px rgba(16, 185, 129, 0.8))' : 'none',
       },
-      markerEnd: { type: MarkerType.ArrowClosed, color: isActive ? '#10b981' : '#6366f1' },
       label: link.utilization_pct != null ? `${link.utilization_pct.toFixed(0)}%` : undefined,
     }
   })
@@ -183,10 +181,19 @@ export default function NetworkTopology() {
   // 用 useNodesState / useEdgesState + useEffect 保证正确同步
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  
+  // 记录上一次拓扑的 JSON，避免无意义的重绘导致的内存泄漏
+  const [lastTopoJson, setLastTopoJson] = useState('')
 
   useEffect(() => {
     if (!topology) return
     const links = topology.links || []
+    const topoNodes = topology.nodes || []
+    
+    // 简易深度比对（忽略时间戳等无关字段）
+    const currentJson = JSON.stringify({ nodes: topoNodes, links })
+    if (currentJson === lastTopoJson) return
+    setLastTopoJson(currentJson)
     
     setNodes(currentNodes => {
       const posMap = new Map(currentNodes.map(n => [n.id, n.position]))

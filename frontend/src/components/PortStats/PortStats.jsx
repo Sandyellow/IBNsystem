@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../../services/api'
 import { Cpu, RefreshCw, AlertTriangle } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import './PortStats.css'
 
 function formatBytes(bytes) {
@@ -63,6 +64,7 @@ function PortRow({ port, maxBytes }) {
 
 export default function PortStats() {
   const [statsData, setStatsData] = useState({})
+  const [historyData, setHistoryData] = useState({})
   const [loading, setLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -71,6 +73,7 @@ export default function PortStats() {
     try {
       const resp = await api.get('/port-stats')
       setStatsData(resp.data.port_stats || {})
+      setHistoryData(resp.data.history || {})
       setLastUpdated(new Date())
     } catch (e) {
       console.error('获取端口统计失败:', e)
@@ -81,8 +84,7 @@ export default function PortStats() {
 
   useEffect(() => {
     fetchStats()
-    const t = setInterval(fetchStats, 8000)
-    return () => clearInterval(t)
+    // 根据用户要求，不提供自动滚动的实时图表，仅展示点击/刷新时的静态快照
   }, [])
 
   const switches = Object.entries(statsData)
@@ -112,11 +114,38 @@ export default function PortStats() {
         switches.map(([dpid, ports]) => {
           const validPorts = (ports || []).filter(p => p.port_no !== 4294967294)
           const maxBytes = getMaxBytes(validPorts)
+          const history = historyData[dpid] || []
+          
           return (
             <div key={dpid} className="port-switch-section">
-              <div className="port-switch-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="port-switch-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                 <Cpu size={14} color="#6366f1" /> 交换机 dpid={dpid}
               </div>
+              
+              {history.length > 1 && (
+                <div style={{ height: 180, width: '100%', marginBottom: 16 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={history} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                      <XAxis dataKey="time" stroke="var(--color-text-muted)" fontSize={10} tickMargin={8} minTickGap={20} />
+                      <YAxis stroke="var(--color-text-muted)" fontSize={10} unit=" KB/s" tickCount={5} />
+                      <RechartsTooltip 
+                        contentStyle={{ fontSize: 11, borderRadius: 6, border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-sm)', backgroundColor: 'rgba(255, 255, 255, 0.95)' }}
+                        labelStyle={{ color: 'var(--color-text-muted)', marginBottom: 4 }}
+                      />
+                      {validPorts.map((p, idx) => {
+                         const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899']
+                         const color = colors[idx % colors.length]
+                         return [
+                           <Line key={`rx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_rx`} name={`Port ${p.port_no} RX`} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} />,
+                           <Line key={`tx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_tx`} name={`Port ${p.port_no} TX`} stroke={color} strokeDasharray="4 4" strokeWidth={2} dot={false} isAnimationActive={false} />
+                         ]
+                      })}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
               {validPorts.length === 0 ? (
                 <div className="port-stats-empty-sw">无端口数据</div>
               ) : (

@@ -76,12 +76,10 @@ function formatMatch(match) {
   }
 
   if (parts.length === 0) {
-    return Object.entries(match)
-      .map(([k, v]) => `${k}=${v}`)
-      .join(', ')
+    return Object.entries(match).map(([k, v]) => `${k}=${v}`)
   }
 
-  return parts.join(' | ')
+  return parts
 }
 
 function formatActions(flow) {
@@ -129,7 +127,13 @@ function FlowCard({ flow, isCustom }) {
       <div className="fc-body">
         <div className="fc-row">
           <span className="fc-label">匹配</span>
-          <span className="fc-match">{formatMatch(flow.match || {})}</span>
+          <div className="fc-matches">
+            {(() => {
+              const matches = formatMatch(flow.match || {})
+              if (typeof matches === 'string') return <span className="fc-match-tag">{matches}</span>
+              return matches.map((m, i) => <span key={i} className="fc-match-tag">{m}</span>)
+            })()}
+          </div>
         </div>
         <div className="fc-row">
           <span className="fc-label">动作</span>

@@ -34,13 +34,14 @@ function TopoInfo() {
           { label: '活跃告警', value: networkStatus?.active_alerts || 0, color: '#fc814a' },
         ].map(item => (
           <div key={item.label} style={{
-            background: 'var(--color-surface-2)',
-            border: '1px solid var(--color-border)',
+            background: '#ffffff',
+            border: '1px solid var(--color-border-strong)',
             borderRadius: 8,
-            padding: '8px 10px',
+            padding: '10px 12px',
+            boxShadow: 'var(--shadow-sm)',
           }}>
-            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 2 }}>{item.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 4 }}>{item.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: item.color }}>{item.value}</div>
           </div>
         ))}
       </div>
@@ -48,31 +49,36 @@ function TopoInfo() {
       {/* 交换机列表 */}
       {switches.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 5, fontWeight: 600 }}>交换机</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 700 }}>交换机</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {switches.map(sw => (
               <div key={sw.id} style={{
-                background: 'var(--color-surface-2)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 6,
-                padding: '5px 10px',
+                background: '#ffffff',
+                border: '1px solid var(--color-border-strong)',
+                borderRadius: 8,
+                padding: '10px 14px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                fontSize: 12,
+                gap: 12,
+                fontSize: 14,
+                boxShadow: 'var(--shadow-sm)',
               }}>
-                <Cpu size={14} color="#63b3ed" />
-                <span style={{ fontWeight: 600 }}>{sw.id}</span>
-                {sw.dpid && (
-                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
-                    dpid={sw.dpid}
-                  </span>
-                )}
-                {sw.port_count != null && (
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-muted)' }}>
-                    {sw.port_count} 端口
-                  </span>
-                )}
+                <Cpu size={18} color="#1d4ed8" style={{ marginTop: 2, flexShrink: 0 }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>{sw.id}</span>
+                    {sw.port_count != null && (
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                        {sw.port_count} 端口
+                      </span>
+                    )}
+                  </div>
+                  {sw.dpid && (
+                    <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      dpid={sw.dpid}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -82,24 +88,25 @@ function TopoInfo() {
       {/* 主机列表 */}
       {hosts.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 5, fontWeight: 600 }}>主机</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 700 }}>主机</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {hosts.map(h => (
               <div key={h.id} style={{
-                background: 'var(--color-surface-2)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 6,
-                padding: '5px 10px',
+                background: '#ffffff',
+                border: '1px solid var(--color-border-strong)',
+                borderRadius: 8,
+                padding: '10px 14px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                fontSize: 12,
+                gap: 12,
+                fontSize: 14,
+                boxShadow: 'var(--shadow-sm)',
               }}>
-                <Server size={14} color="#68d391" />
-                <span style={{ fontWeight: 600 }}>{h.id}</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {h.ip && <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>IP: {h.ip}</span>}
-                  {h.mac && <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>MAC: {h.mac}</span>}
+                <Server size={18} color="#15803d" style={{ marginTop: 2, flexShrink: 0 }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>{h.id}</span>
+                  {h.ip && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>IP: {h.ip}</span>}
+                  {h.mac && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>MAC: {h.mac}</span>}
                 </div>
               </div>
             ))}
@@ -136,15 +143,15 @@ function AlertsTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)' }}>实时告警</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>实时告警</span>
         {active.length > 0 && (
           <span style={{
-            background: 'var(--color-danger)',
-            color: 'white',
-            fontSize: 10,
+            background: 'var(--color-primary)',
+            color: '#fff',
+            fontSize: 11,
             fontWeight: 700,
-            padding: '1px 6px',
-            borderRadius: 20,
+            padding: '1px 7px',
+            borderRadius: 10,
           }}>
             {active.length}
           </span>

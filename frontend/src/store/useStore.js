@@ -16,6 +16,7 @@ const useStore = create(subscribeWithSelector((set, get) => ({
 
   // ─── 策略状态（用于触发 PolicyPanel 刷新）──
   lastPolicyUpdate: null,
+  policies: [],
 
   // ─── UI 状态 ───────────────────────────────
   selectedNode: null,
@@ -31,6 +32,8 @@ const useStore = create(subscribeWithSelector((set, get) => ({
   addAlert: (alert) => set(s => ({ alerts: [alert, ...s.alerts].slice(0, 50) })),
 
   setWsConnected: (v) => set({ wsConnected: v }),
+
+  setPolicies: (policies) => set({ policies }),
 
   triggerPolicyUpdate: () => set({ lastPolicyUpdate: Date.now() }),
 

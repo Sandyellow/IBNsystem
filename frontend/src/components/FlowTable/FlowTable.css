@@ -162,7 +162,7 @@
 }
 
 .fc-priority {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
@@ -182,7 +182,7 @@
 }
 .fc-meta {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--color-text-muted);
   display: flex;
   align-items: center;
@@ -202,19 +202,30 @@
 }
 
 .fc-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--color-text-muted);
   font-weight: 600;
   width: 32px;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
-.fc-match {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
+.fc-matches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.fc-match-tag {
+  background: var(--color-surface-2);
   color: var(--color-text-primary);
-  word-break: break-all;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .fc-actions {
@@ -227,8 +238,8 @@
   background: rgba(72, 187, 120, 0.15);
   color: #16a34a;
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 10px;
+  padding: 3px 8px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -236,8 +247,8 @@
   background: rgba(252, 129, 74, 0.15);
   color: #ea580c;
   border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 10px;
+  padding: 3px 8px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -251,7 +262,7 @@
 }
 
 .fc-stat {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--color-text-muted);
 }
 .fc-stat-val {

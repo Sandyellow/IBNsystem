@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from core.ryu_client import ryu_client
 from core.topo_manager import topo_manager
 from core.policy_executor import policy_executor
+from core.stats_manager import stats_manager
 
 router = APIRouter(prefix="/api", tags=["network"])
 logger = logging.getLogger(__name__)
@@ -77,12 +78,19 @@ async def get_flows_for_switch(dpid: int):
 
 @router.get("/port-stats")
 async def get_port_stats():
-    """获取所有交换机的端口统计（包计数、字节数、错误数）"""
+    """获取所有交换机的端口统计及近期历史速率（包计数、字节数、错误数）"""
     dpids = topo_manager.get_all_switch_dpids()
     result = {}
     for dpid in dpids:
         result[str(dpid)] = await ryu_client.get_port_stats(dpid)
-    return {"port_stats": result, "switch_count": len(dpids)}
+        
+    history = stats_manager.get_history()
+    
+    return {
+        "port_stats": result, 
+        "history": history,
+        "switch_count": len(dpids)
+    }
 
 
 @router.get("/port-desc")

@@ -57,7 +57,8 @@ function PolicyCard({ policy, onRevoke }) {
 }
 
 export default function PolicyPanel() {
-  const [policies, setPolicies] = useState([])
+  const policies = useStore(s => s.policies) || []
+  const setPolicies = useStore(s => s.setPolicies)
   const [loading, setLoading] = useState(false)
 
   const fetchPolicies = async () => {
@@ -88,7 +89,7 @@ export default function PolicyPanel() {
   const handleRevoke = async (policyId) => {
     try {
       await api.delete(`/policies/${policyId}`)
-      setPolicies(prev => prev.filter(p => p.id !== policyId))
+      setPolicies(policies.filter(p => p.id !== policyId))
     } catch (e) {
       console.error('撤销失败:', e)
     }
