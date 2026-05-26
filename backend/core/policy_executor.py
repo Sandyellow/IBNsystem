@@ -13,17 +13,16 @@ import httpx
 
 from config import settings
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager
+from core.topo_manager import topo_manager, _is_placeholder_mac
 from models.intent import ParsedIntent, IntentAction
 from models.policy import ActivePolicy, PolicyType
 
+from core.policy_store import load_policies, save_policies
+
 logger = logging.getLogger(__name__)
 
-# 内存策略注册表（key = intent_id）
-_active_policies: Dict[str, ActivePolicy] = {}
-
-# Meter ID 计数器（从 200 开始，避免与 Ryu 自身 Meter 冲突）
-_meter_counter = 200
+# 从本地加载持久化策略和计数器
+_active_policies, _meter_counter = load_policies()
 
 
 def _next_meter_id() -> int:
@@ -53,7 +52,6 @@ class PolicyExecutor:
                 IntentAction.RATE_LIMIT:       self._rate_limit,
                 IntentAction.SET_PRIORITY:     self._set_priority,
                 IntentAction.REDIRECT_TRAFFIC: self._redirect_traffic,
-                IntentAction.PING_TEST:        self._ping_test,
                 IntentAction.CLEAR_FLOWS:      self._clear_flows,
             }
             handler = handlers.get(action)
@@ -135,6 +133,28 @@ class PolicyExecutor:
 
         src_mac = src_info["mac"]
         dst_mac = dst_info["mac"]
+
+        # 检测是否获取到了占位符假 MAC，若是则触发重新发现后重试一次
+        if _is_placeholder_mac(src_mac) or _is_placeholder_mac(dst_mac):
+            logger.warning(
+                f"[PolicyExecutor] 检测到占位符 MAC（{src_mac}, {dst_mac}），"
+                "触发主机重新发现..."
+            )
+            await topo_manager.fetch_host_config()
+            src_info = topo_manager.get_host(intent.src_host)
+            dst_info = topo_manager.get_host(intent.dst_host)
+            if not src_info or not dst_info:
+                return {"success": False, "error": "重新发现后主机信息仍不存在"}
+            src_mac = src_info["mac"]
+            dst_mac = dst_info["mac"]
+            if _is_placeholder_mac(src_mac) or _is_placeholder_mac(dst_mac):
+                return {
+                    "success": False,
+                    "error": (
+                        f"无法获取 {intent.src_host}/{intent.dst_host} 的真实 MAC。"
+                        "请确认 Mininet 网络已启动，Ryu 控制器已学习到主机信息（可先执行 ping 测试触发学习）"
+                    ),
+                }
         cookie = _make_cookie(intent_id)
         dpids = topo_manager.get_all_switch_dpids()
 
@@ -169,10 +189,13 @@ class PolicyExecutor:
             policy_type=PolicyType.BLOCK,
             src_host=intent.src_host,
             dst_host=intent.dst_host,
+            intent_action=intent.action,
+            parameters=intent.parameters,
             description=f"隔离 {intent.src_host} ↔ {intent.dst_host}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
+        save_policies(_active_policies, _meter_counter)
 
         return {
             "success": True,
@@ -203,6 +226,9 @@ class PolicyExecutor:
                 removed_cookies.extend(pol.ryu_cookies)
                 removed_desc.append(pol.description)
                 del _active_policies[pol_id]
+
+        if removed_cookies:
+            save_policies(_active_policies, _meter_counter)
 
         if not removed_cookies:
             return {
@@ -275,11 +301,14 @@ class PolicyExecutor:
             policy_type=PolicyType.RATE_LIMIT,
             src_host=intent.src_host,
             dst_host=intent.dst_host,
+            intent_action=intent.action,
+            parameters=intent.parameters,
             description=f"限速 {intent.src_host}→{intent.dst_host} ≤{bw_mbps}Mbps",
             ryu_cookies=[cookie],
             meter_ids=[meter_id],
             created_at=time.time(),
         )
+        save_policies(_active_policies, _meter_counter)
 
         return {
             "success": True,
@@ -328,10 +357,13 @@ class PolicyExecutor:
             policy_type=PolicyType.PRIORITY,
             src_host=intent.src_host,
             dst_host=intent.dst_host,
+            intent_action=intent.action,
+            parameters=intent.parameters,
             description=f"优先级 {priority}: {intent.src_host}→{intent.dst_host}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
+        save_policies(_active_policies, _meter_counter)
 
         return {
             "success": True,
@@ -383,10 +415,13 @@ class PolicyExecutor:
             policy_type=PolicyType.REDIRECT,
             src_host=intent.src_host,
             dst_host=intent.dst_host,
+            intent_action=intent.action,
+            parameters=intent.parameters,
             description=f"重定向 {intent.src_host}→{intent.dst_host} 经由 {via_sw or '默认路径'}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
+        save_policies(_active_policies, _meter_counter)
 
         return {
             "success": True,
@@ -401,36 +436,6 @@ class PolicyExecutor:
             ),
         }
 
-    async def _ping_test(self, intent: ParsedIntent, _: str) -> Dict:
-        """通过 VM Agent 的 /mininet/ping 执行真实 ping 测试"""
-        src = intent.src_host
-        dst = intent.dst_host
-        dst_info = topo_manager.get_host(dst)
-        dst_ip = dst_info["ip"] if dst_info else dst
-
-        try:
-            async with httpx.AsyncClient(
-                base_url=settings.VM_AGENT_URL,
-                timeout=httpx.Timeout(40.0, connect=5.0),
-            ) as client:
-                resp = await client.post("/mininet/ping", json={
-                    "src": src,
-                    "dst": dst,
-                    "dst_ip": dst_ip,
-                    "count": 4,
-                })
-                resp.raise_for_status()
-                data = resp.json()
-                return {
-                    "success": data.get("success", False),
-                    "type": "ping_test",
-                    "output": data.get("output", ""),
-                    "packet_loss": data.get("packet_loss"),
-                    "avg_rtt_ms": data.get("avg_rtt_ms"),
-                    "message": data.get("summary", f"{src} → {dst}({dst_ip}) ping 测试完成"),
-                }
-        except Exception as e:
-            return {"success": False, "type": "ping_test", "error": f"ping 测试失败: {e}"}
 
     async def _clear_flows(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """清除指定交换机上 IBN 系统下发的所有自定义规则"""
@@ -451,6 +456,8 @@ class PolicyExecutor:
             for mid in pol.meter_ids:
                 await ryu_client.delete_meter(dpid, mid)
             del _active_policies[pol_id]
+
+        save_policies(_active_policies, _meter_counter)
 
         return {
             "success": True,
@@ -480,7 +487,55 @@ class PolicyExecutor:
 
         desc = pol.description
         del _active_policies[policy_id]
+        save_policies(_active_policies, _meter_counter)
         return True, f"已撤销策略: {desc}"
+
+    async def sync_with_data_plane(self):
+        """核心对齐/调和逻辑：通过拉取底层真实流表，重建丢失的策略规则"""
+        logger.info("[Reconciler] 开始执行与底层数据平面的状态对齐...")
+        dpids = topo_manager.get_all_switch_dpids()
+        if not dpids:
+            logger.warning("[Reconciler] 拓扑暂无交换机，跳过调和")
+            return
+            
+        # 1. 收集所有交换机上当前存活的 cookies
+        alive_cookies = set()
+        for dpid in dpids:
+            flows = await ryu_client.get_flows(dpid)
+            for f in flows:
+                cookie = f.get("cookie", 0)
+                if cookie != 0:
+                    alive_cookies.add(cookie)
+                    
+        # 2. 对比期望状态并触发重建
+        rebuilt_count = 0
+        for pol_id, pol in list(_active_policies.items()):
+            # 若策略关联的任意一个 cookie 丢失，意味着底层可能发生了重置
+            # 为了安全起见，只要丢了任何一个 cookie 就重新应用整个意图
+            is_missing = False
+            for c in pol.ryu_cookies:
+                if c not in alive_cookies:
+                    is_missing = True
+                    break
+                    
+            if is_missing and pol.intent_action:
+                logger.warning(f"[Reconciler] 策略 {pol_id} ({pol.description}) 在底层发生缺失，准备自动重建...")
+                intent = ParsedIntent(
+                    action=pol.intent_action,
+                    src_host=pol.src_host,
+                    dst_host=pol.dst_host,
+                    target_switch=pol.target_switch,
+                    parameters=pol.parameters,
+                    explanation="[Reconciler 自动重建]"
+                )
+                # 重新执行以恢复底层流表
+                res = await self.execute(intent, pol_id)
+                if res.get("success"):
+                    rebuilt_count += 1
+                else:
+                    logger.error(f"[Reconciler] 重建策略 {pol_id} 失败: {res.get('error')}")
+                    
+        logger.info(f"[Reconciler] 对齐完成。共检测并自动重建了 {rebuilt_count} 条策略。")
 
 
 # 单例

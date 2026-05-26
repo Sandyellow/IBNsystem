@@ -1,10 +1,11 @@
 """
 拓扑与主机状态管理器
-从 Ryu topology API 获取网络拓扑，整合静态主机配置（MAC/IP/连接端口）
+从 Ryu topology API 获取网络拓扑，并动态发现主机 MAC/IP/连接端口（完全动态，无静态配置局限）
 替代旧版 network_manager.py
 """
 from __future__ import annotations
 import asyncio
+import ipaddress
 import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -16,21 +17,72 @@ from core.ryu_client import ryu_client
 
 logger = logging.getLogger(__name__)
 
-# 默认主机配置（与 mininet_topology.py 保持一致，当 VM Agent 不可达时作为兜底）
-_DEFAULT_HOSTS = [
-    {"id": "h1", "ip": "10.0.0.1", "mac": "00:00:00:00:00:01", "connected_switch": "s2", "port": 1},
-    {"id": "h2", "ip": "10.0.0.2", "mac": "00:00:00:00:00:02", "connected_switch": "s2", "port": 2},
-    {"id": "h3", "ip": "10.0.0.3", "mac": "00:00:00:00:00:03", "connected_switch": "s3", "port": 1},
-    {"id": "h4", "ip": "10.0.0.4", "mac": "00:00:00:00:00:04", "connected_switch": "s3", "port": 2},
-]
-
 HostInfo = Dict[str, Any]
+
+
+def _dpid_to_sw_name(dpid: str) -> str:
+    """将 Ryu dpid 转换为交换机名（完全来自 Ryu 数据，无静态映射）"""
+    try:
+        n = int(dpid, 16) if isinstance(dpid, str) else int(dpid)
+        return f"s{n}"
+    except Exception:
+        return f"s_{dpid}"
+
+
+def _build_dynamic_hosts(ryu_hosts_raw: list) -> List[HostInfo]:
+    """将 Ryu /v1.0/topology/hosts 原始格式转换为 IBN 主机格式。
+
+    命名策略：按 IP 地址升序排序后顺次编号为 h1/h2/h3/...
+    完全动态，适配任何未知拓扑。
+    """
+    hosts: List[HostInfo] = []
+    seen_macs: set = set()
+
+    for rh in ryu_hosts_raw:
+        mac = rh.get("mac", "")
+        if not mac or mac in seen_macs:
+            continue
+        seen_macs.add(mac)
+        ipv4_list = rh.get("ipv4", [])
+        ip = ipv4_list[0] if ipv4_list else None
+        port_info = rh.get("port", {})
+        sw_dpid = port_info.get("dpid", "")
+        port_no = port_info.get("port_no")
+        connected_sw = _dpid_to_sw_name(sw_dpid) if sw_dpid else None
+        hosts.append({
+            "ip": ip, "mac": mac,
+            "connected_switch": connected_sw, "port": port_no,
+        })
+
+    # 按 IP 地址升序排序，保证命名确定性
+    def _ip_key(h):
+        try:
+            return ipaddress.ip_address(h["ip"] or "255.255.255.255")
+        except Exception:
+            return ipaddress.ip_address("255.255.255.255")
+
+    hosts.sort(key=_ip_key)
+    for i, h in enumerate(hosts, 1):
+        h["id"] = f"h{i}"
+    return hosts
+
+
+
+def _is_placeholder_mac(mac: str) -> bool:
+    """检测是否是静态占位 MAC（如 00:00:00:00:00:01）"""
+    if not mac:
+        return True
+    # OUI 全为 00 且主机部分主要起侏手，这种 MAC 在真实网卡上几乎不存在
+    parts = mac.split(":")
+    if len(parts) != 6:
+        return True
+    return all(p == "00" for p in parts[:5])  # 前 5 组均为 00
 
 
 class TopoManager:
     def __init__(self):
         self._topology: Dict[str, Any] = {"nodes": [], "links": [], "timestamp": 0.0}
-        self._hosts: List[HostInfo] = list(_DEFAULT_HOSTS)
+        self._hosts: List[HostInfo] = []  # 初始为空，等待动态发现
         self._ryu_connected: bool = False
         self._poll_task: Optional[asyncio.Task] = None
         self._callbacks: List[Callable] = []
@@ -45,18 +97,30 @@ class TopoManager:
             )
         return self._agent_client
 
-    # ── 主机配置 ───────────────────────────────────────────
+    # ── 主机配置 ───────────────────────────────────────────────────
     async def fetch_host_config(self):
-        """从 VM Agent /hosts 获取静态主机配置，失败则用默认值"""
+        """从 VM Agent /hosts 动态获取真实主机配置（Ryu PacketIn 学习结果）。
+        若获取失败或返回空列表，保持当前 _hosts 不变，而非回退到假 MAC。"""
         try:
             r = await self._agent().get("/hosts")
             r.raise_for_status()
-            hosts = r.json().get("hosts", [])
-            if hosts:
+            data = r.json()
+            hosts = data.get("hosts", [])
+            discovered = data.get("discovered", False)
+            if hosts and discovered:
                 self._hosts = hosts
-                logger.info(f"[TopoManager] 主机配置已加载: {[h['id'] for h in hosts]}")
+                logger.info(
+                    f"[TopoManager] 动态主机已发现: "
+                    f"{[(h['id'], h['mac']) for h in hosts]}"
+                )
+            elif not discovered:
+                logger.warning(
+                    "[TopoManager] VM Agent 返回 discovered=False，"
+                    f"warning: {data.get('warning', '')}。"
+                    f"当前 _hosts 共 {len(self._hosts)} 条，保持不变。"
+                )
         except Exception as e:
-            logger.warning(f"[TopoManager] 无法从 Agent 获取主机配置，使用默认值: {e}")
+            logger.warning(f"[TopoManager] 无法获取动态主机配置: {e}。当前 _hosts 保持不变。")
 
     def get_host(self, host_id: Optional[str]) -> Optional[HostInfo]:
         if not host_id:
@@ -199,7 +263,15 @@ class TopoManager:
                     "dst_port": dst_port,
                 })
 
-            # 添加主机节点和主机-交换机链路（使用静态配置）
+            # 添加主机节点和主机-交换机链路
+            # 优先使用 Ryu 动态学习的真实 MAC，如果 Ryu 已有主机数据则同步更新 _hosts
+            ryu_hosts_raw = await ryu_client.get_topology_hosts()
+            if ryu_hosts_raw:
+                dynamic_hosts = _build_dynamic_hosts(ryu_hosts_raw)
+                if dynamic_hosts:
+                    self._hosts = dynamic_hosts
+                    logger.debug(f"[TopoManager] 已从 Ryu 同步 {len(self._hosts)} 个主机 MAC")
+
             for h in self._hosts:
                 nodes.append({
                     "id": h["id"],

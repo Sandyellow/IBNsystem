@@ -38,6 +38,9 @@ async def get_topology():
 async def refresh_topology():
     """主动刷新拓扑"""
     await topo_manager.refresh()
+    # 拓扑刷新时，触发一次状态调和
+    import asyncio
+    asyncio.create_task(policy_executor.sync_with_data_plane())
     return topo_manager.topology
 
 

@@ -8,20 +8,79 @@ import requests
 import time
 import json
 import os
+import re as _re
 
 app = Flask(__name__)
 
 RYU_BASE = "http://127.0.0.1:8080"   # Ryu REST API 本地地址
-TOPO_CONFIG = os.path.join(os.path.dirname(__file__), "topology_config.json")
 
 
-def load_host_config():
-    """从 topology_config.json 读取主机信息，文件不存在时返回空列表"""
+def _fetch_ryu_hosts():
+    """从 Ryu /v1.0/topology/hosts 获取动态学习到的主机列表。
+    返回 Ryu 原始格式，不作任何加工。
+    """
     try:
-        with open(TOPO_CONFIG, "r") as f:
-            return json.load(f).get("hosts", [])
+        r = requests.get(f"{RYU_BASE}/v1.0/topology/hosts", timeout=5)
+        if r.ok:
+            return r.json() or []
     except Exception:
-        return []
+        pass
+    return []
+
+
+def _ryu_hosts_to_ibn_format(ryu_hosts_raw):
+    """将 Ryu /v1.0/topology/hosts 返回的原始格式转换为 IBN 系统的主机信息格式。
+
+    命名策略：按 IP 地址升序排序，依次编号为 h1/h2/h3/...
+    这样任何拓扑都能自动适应，无需预先配置主机名。
+    """
+    import ipaddress
+
+    hosts = []
+    seen_macs = set()
+
+    for ryu_host in ryu_hosts_raw:
+        mac = ryu_host.get("mac", "")
+        if not mac or mac in seen_macs:
+            continue
+        seen_macs.add(mac)
+
+        ipv4_list = ryu_host.get("ipv4", [])
+        ip = ipv4_list[0] if ipv4_list else None
+        port_info = ryu_host.get("port", {})
+        sw_dpid = port_info.get("dpid", "")
+        port_no = port_info.get("port_no")
+
+        # dpid 转为交换机名（完全来自 Ryu 数据，无静态映射）
+        connected_switch = None
+        if sw_dpid:
+            try:
+                sw_num = int(sw_dpid, 16) if isinstance(sw_dpid, str) else int(sw_dpid)
+                connected_switch = f"s{sw_num}"
+            except Exception:
+                pass
+
+        hosts.append({
+            "ip": ip,
+            "mac": mac,
+            "connected_switch": connected_switch,
+            "port": port_no,
+        })
+
+    # 按 IP 地址升序排序，保证命名编号确定性
+    def _ip_sort_key(h):
+        try:
+            return ipaddress.ip_address(h["ip"] or "255.255.255.255")
+        except Exception:
+            return ipaddress.ip_address("255.255.255.255")
+
+    hosts.sort(key=_ip_sort_key)
+
+    # 动态编号：h1, h2, h3, ...（纯由 Ryu 发现结果决定，无静态配置）
+    for i, h in enumerate(hosts, 1):
+        h["id"] = f"h{i}"
+
+    return hosts
 
 
 def safe_json(resp):
@@ -43,13 +102,48 @@ def ping():
 
 
 # ─────────────────────────────────────────────────────
-#  主机静态配置 — 返回 topology_config.json 中的主机信息
-#  供 Windows 后端获取 MAC/IP 做流表匹配
+#  主机动态发现 — 纯 Ryu 交互，无静态配置
+#  主机命名按 IP 升序动态编号（h1/h2/h3/...），适配任何拓扑
 # ─────────────────────────────────────────────────────
 @app.route("/hosts")
 def get_hosts():
-    hosts = load_host_config()
-    return jsonify({"hosts": hosts, "count": len(hosts)})
+    """
+    完全动态获取主机信息，纯 Ryu 交互，不依赖任何静态配置：
+
+    1. 查询 Ryu /v1.0/topology/hosts（Ryu PacketIn 学习结果）
+    2. 若为空，轻微等待重试（最多 3 次，不操作 VM 其他部分）
+    3. 按 IP 地址升序排序，动态编号为 h1/h2/h3/...
+    """
+    ryu_hosts = _fetch_ryu_hosts()
+
+    # Ryu 尚未学习到主机时，尝试轻微等待重试（Mininet 启动时 pingAll 会触发 Ryu 学习）
+    # 注意：这里仅重试查询 Ryu，不对 VM 做任何操作
+    if not ryu_hosts:
+        for _ in range(3):
+            time.sleep(1)
+            ryu_hosts = _fetch_ryu_hosts()
+            if ryu_hosts:
+                break
+
+    if not ryu_hosts:
+        return jsonify({
+            "hosts": [],
+            "count": 0,
+            "discovered": False,
+            "warning": (
+                "Ryu 尚未学习到主机信息。"
+                "请确认：(1) Mininet 已启动且完成 pingAll；"
+                "(2) Ryu 已加载 ryu.topology.switches --observe-links"
+            ),
+        })
+
+    hosts = _ryu_hosts_to_ibn_format(ryu_hosts)
+    return jsonify({
+        "hosts": hosts,
+        "count": len(hosts),
+        "discovered": True,
+    })
+
 
 # ─────────────────────────────────────────────────────
 #  诊断端点 — 查看 Ryu 原始返回（调试用）
@@ -490,83 +584,6 @@ def rollback_policy():
     for action in policy.get("actions", []):
         action["type"] = "delete"
     return apply_policy()
-
-
-# ─────────────────────────────────────────────────────
-#  Mininet 命令执行
-# ─────────────────────────────────────────────────────
-@app.route("/mininet/exec", methods=["POST"])
-def exec_mininet_cmd():
-    cmd = request.json.get("command", "")
-    import re
-    if re.search(r'[;&|`$><]', cmd):
-        return jsonify({"success": False, "error": "包含非法字符，禁止执行"})
-    
-    import shlex
-    try:
-        cmd_parts = shlex.split(cmd)
-        result = subprocess.run(
-            cmd_parts, capture_output=True, text=True, timeout=30
-        )
-        return jsonify({"success": True, "output": result.stdout, "stderr": result.stderr})
-    except subprocess.TimeoutExpired:
-        return jsonify({"success": False, "error": "命令执行超时"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
-
-# ─────────────────────────────────────────────────────
-#  Mininet 主机间 ping 测试
-#  通过 ip netns exec 在对应主机网络命名空间内执行 ping
-# ─────────────────────────────────────────────────────
-@app.route("/mininet/ping", methods=["POST"])
-def mininet_ping():
-    data = request.json or {}
-    src = data.get("src", "")
-    dst_ip = data.get("dst_ip", "")
-    count = int(data.get("count", 4))
-
-    if not src or not dst_ip:
-        return jsonify({"success": False, "error": "需要 src 和 dst_ip 参数"})
-
-    # 利用 ip netns exec 在 Mininet 主机命名空间内执行 ping
-    # Mininet 主机命名空间名与主机名相同（如 h1, h2）
-    try:
-        result = subprocess.run(
-            ["ip", "netns", "exec", src, "ping", "-c", str(count), "-W", "2", dst_ip],
-            capture_output=True, text=True, timeout=count * 3 + 5
-        )
-        output = result.stdout + result.stderr
-        success = result.returncode == 0
-
-        # 解析 ping 统计
-        import re as _re
-        packet_loss = None
-        avg_rtt_ms = None
-        loss_match = _re.search(r'(\d+)% packet loss', output)
-        rtt_match = _re.search(r'rtt min/avg/max/mdev = [\d.]+/([\d.]+)/', output)
-        if loss_match:
-            packet_loss = int(loss_match.group(1))
-        if rtt_match:
-            avg_rtt_ms = float(rtt_match.group(1))
-
-        summary = (
-            f"{src} → {dst_ip}: "
-            f"{'连通' if success else '不通'}"
-            f"{', 丢包 ' + str(packet_loss) + '%' if packet_loss is not None else ''}"
-            f"{', RTT avg=' + str(avg_rtt_ms) + 'ms' if avg_rtt_ms is not None else ''}"
-        )
-        return jsonify({
-            "success": success,
-            "output": output,
-            "packet_loss": packet_loss,
-            "avg_rtt_ms": avg_rtt_ms,
-            "summary": summary,
-        })
-    except subprocess.TimeoutExpired:
-        return jsonify({"success": False, "error": "ping 超时", "output": ""})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e), "output": ""})
 
 
 if __name__ == "__main__":

@@ -26,6 +26,12 @@ async def lifespan(app: FastAPI):
     # 启动：注册回调 → 启动拓扑轮询
     topo_manager.on_topology_update(ws_manager.broadcast_topology)
     await topo_manager.start_polling()
+    
+    # 启动后触发一次数据平面调和，补齐丢失的流表
+    from core.policy_executor import policy_executor
+    import asyncio
+    asyncio.create_task(policy_executor.sync_with_data_plane())
+    
     logger.info("IBN 系统 v2 已启动，直连 Ryu 轮询中...")
     yield
     # 关闭：停止轮询 → 关闭 Ryu 连接

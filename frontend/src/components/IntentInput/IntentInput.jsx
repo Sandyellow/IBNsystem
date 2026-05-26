@@ -23,7 +23,6 @@ const ACTION_ICONS = {
   rate_limit:       <Clock4 size={14} />,
   set_priority:     <TrendingUp size={14} />,
   redirect_traffic: <CornerDownRight size={14} />,
-  ping_test:        <ActivitySquare size={14} />,
   clear_flows:      <Trash2 size={14} />,
 }
 
@@ -34,36 +33,12 @@ const QUICK_ACTIONS = [
   { label: '端口统计', text: '查看所有交换机的端口流量统计', icon: <Activity size={12} /> },
   { label: '隔离主机', text: '隔离 h1 和 h3 的通信', icon: <ShieldAlert size={12} /> },
   { label: '带宽限速', text: '限制 h2 到 h4 的带宽为 5Mbps', icon: <Clock4 size={12} /> },
-  { label: '连通测试', text: '测试 h1 和 h2 之间的连通性', icon: <ActivitySquare size={12} /> },
   { label: '恢复通信', text: '恢复 h1 和 h3 的通信', icon: <CheckSquare size={12} /> },
   { label: '高优先级', text: '给 h1 到 h2 的流量设置优先级 300', icon: <TrendingUp size={12} /> },
 ]
 
 function ResultDisplay({ result, action }) {
   if (!result) return null
-
-  // ping_test 结果
-  if (result.type === 'ping_test') {
-    const success = result.success
-    return (
-      <div className={`bubble ${success ? 'bubble-system' : 'bubble-error'}`}>
-        <div className="result-header" style={{ color: success ? '#48bb78' : '#fc814a' }}>
-          <ActivitySquare size={16} /> {result.message || 'Ping 测试结果'}
-        </div>
-        {result.avg_rtt_ms != null && (
-          <div style={{ fontSize: 11, marginTop: 4 }}>
-            平均 RTT: <strong>{result.avg_rtt_ms}ms</strong>
-            {result.packet_loss != null && ` | 丢包率: ${result.packet_loss}%`}
-          </div>
-        )}
-        {result.output && (
-          <pre className="code-block" style={{ marginTop: 6, fontSize: 10 }}>
-            {result.output.slice(0, 500)}
-          </pre>
-        )}
-      </div>
-    )
-  }
 
   // query_topology 结果
   if (result.type === 'query_topology') {
@@ -198,17 +173,18 @@ function IntentBubble({ record }) {
           </div>
         )}
 
-        {/* 执行结果 */}
-        {record.status === 'success' && record.execution_result && (
+        {/* 执行结果 —— 成功或失败时均尝试 ResultDisplay 渲染 */}
+        {record.execution_result && (
           <ResultDisplay result={record.execution_result} action={intent?.action} />
         )}
 
-        {/* 错误信息 */}
-        {record.status === 'failed' && record.error_message && (
+        {/* 纯文本错误兜底：仅在无 execution_result 时显示 */}
+        {record.status === 'failed' && !record.execution_result && record.error_message && (
           <div className="bubble bubble-error" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <XCircle size={14} /> {record.error_message}
           </div>
         )}
+
 
         {/* 开发者详情 */}
         <div className="dev-toggle-container">

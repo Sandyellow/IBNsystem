@@ -88,7 +88,7 @@ const useStore = create(subscribeWithSelector((set, get) => ({
     if (oldRecord && oldRecord.status !== 'success' && updated.status === 'success') {
       const intent = updated.parsed_intent
       if (intent) {
-        const animActions = ['ping_test', 'allow_traffic', 'redirect_traffic', 'block_traffic']
+        const animActions = ['allow_traffic', 'redirect_traffic', 'block_traffic']
         if (animActions.includes(intent.action)) {
           get().triggerPathAnimation(intent.src_host, intent.dst_host)
         }

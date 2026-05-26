@@ -15,7 +15,6 @@ class IntentAction(str, Enum):
     RATE_LIMIT       = "rate_limit"
     SET_PRIORITY     = "set_priority"
     REDIRECT_TRAFFIC = "redirect_traffic"
-    PING_TEST        = "ping_test"
     CLEAR_FLOWS      = "clear_flows"
 
 
