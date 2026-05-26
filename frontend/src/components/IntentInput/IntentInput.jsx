@@ -47,14 +47,14 @@ function ResultDisplay({ result, action }) {
     const hosts = nodes.filter(n => n.type === 'host').length
     return (
       <div className="bubble bubble-system">
-        <div className="result-header" style={{ color: '#63b3ed' }}>
+        <div className="result-header" style={{ color: '#2563eb' }}>
           <Network size={16} /> {result.message}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 5 }}>
-          {[['交换机', switches, '#63b3ed'], ['主机', hosts, '#68d391']].map(([l, v, c]) => (
-            <div key={l} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '4px 10px', textAlign: 'center' }}>
+          {[['交换机', switches, '#2563eb'], ['主机', hosts, '#16a34a']].map(([l, v, c]) => (
+            <div key={l} style={{ background: '#f8fafc', borderRadius: 6, padding: '6px 12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: c }}>{v}</div>
-              <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{l}</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>{l}</div>
             </div>
           ))}
         </div>
@@ -67,18 +67,18 @@ function ResultDisplay({ result, action }) {
     const flows = result.data || {}
     return (
       <div className="bubble bubble-system">
-        <div className="result-header" style={{ color: '#63b3ed' }}>
+        <div className="result-header" style={{ color: '#2563eb' }}>
           <ArrowRightLeft size={16} /> {result.message}
         </div>
         <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
           {Object.entries(flows).map(([dpid, entries]) => (
-            <div key={dpid} style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ color: '#63b3ed', fontFamily: 'monospace' }}>dpid={dpid}</span>
-              <span style={{ color: 'var(--color-text-muted)' }}>{entries.length} 条规则</span>
+            <div key={dpid} style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ color: '#2563eb', fontFamily: 'monospace' }}>dpid={dpid}</span>
+              <span style={{ color: '#64748b' }}>{entries.length} 条规则</span>
             </div>
           ))}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
           ← 切换左侧「流表」Tab 查看详情
         </div>
       </div>
@@ -101,12 +101,12 @@ function ResultDisplay({ result, action }) {
 
   // 控制类操作成功结果
   const controlColors = {
-    block_traffic: '#fc814a',
-    allow_traffic: '#48bb78',
-    rate_limit: '#f6e05e',
-    set_priority: '#68d391',
-    redirect_traffic: '#63b3ed',
-    clear_flows: '#a0aec0',
+    block_traffic: '#ea580c',     // orange-600
+    allow_traffic: '#16a34a',     // green-600
+    rate_limit: '#d97706',        // amber-600
+    set_priority: '#059669',      // emerald-600
+    redirect_traffic: '#2563eb',  // blue-600
+    clear_flows: '#475569',       // slate-600
   }
   const color = controlColors[result.type] || '#48bb78'
 
@@ -116,21 +116,21 @@ function ResultDisplay({ result, action }) {
         {ACTION_ICONS[result.type] || <CheckCircle2 size={16} />} {result.message}
       </div>
       {result.installed_on && (
-        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
           已下发到: {result.installed_on.join(', ')}
         </div>
       )}
       {result.meter_id && (
-        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
           Meter ID: #{result.meter_id} | {result.rate_kbps}Kbps
         </div>
       )}
       {result.src_mac && (
-        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, fontFamily: 'monospace' }}>
           {result.src_mac} ↔ {result.dst_mac}
         </div>
       )}
-      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
         ← 切换左侧「活跃策略」Tab 查看详情
       </div>
     </div>

@@ -1,4 +1,24 @@
 {
-  "meter_counter": 200,
-  "policies": {}
+  "meter_counter": 202,
+  "policies": {
+    "8a74e1df-b802-4481-96a8-14c6e5c27dd2": {
+      "id": "8a74e1df-b802-4481-96a8-14c6e5c27dd2",
+      "policy_type": "rate_limit",
+      "src_host": "h2",
+      "dst_host": "h4",
+      "target_switch": null,
+      "intent_action": "rate_limit",
+      "parameters": {
+        "bandwidth_mbps": 5
+      },
+      "description": "限速 h2→h4 ≤5.0Mbps",
+      "ryu_cookies": [
+        456346667440829984
+      ],
+      "meter_ids": [
+        202
+      ],
+      "created_at": 1779808817.172406
+    }
+  }
 }

@@ -64,18 +64,18 @@ function TopoInfo() {
                 boxShadow: 'var(--shadow-sm)',
               }}>
                 <Cpu size={18} color="#1d4ed8" style={{ marginTop: 2, flexShrink: 0 }} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>{sw.id}</span>
+                    <span style={{ fontWeight: 800, color: 'var(--color-text-primary)', fontSize: 15 }}>{sw.id}</span>
                     {sw.port_count != null && (
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-muted)', background: 'var(--color-bg-sidebar)', padding: '2px 8px', borderRadius: 12 }}>
                         {sw.port_count} 端口
                       </span>
                     )}
                   </div>
                   {sw.dpid && (
-                    <span style={{ fontSize: 11, color: 'var(--color-text-secondary)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      dpid={sw.dpid}
+                    <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      dpid: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace', fontWeight: 500 }}>{sw.dpid}</span>
                     </span>
                   )}
                 </div>
@@ -103,10 +103,10 @@ function TopoInfo() {
                 boxShadow: 'var(--shadow-sm)',
               }}>
                 <Server size={18} color="#15803d" style={{ marginTop: 2, flexShrink: 0 }} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
-                  <span style={{ fontWeight: 800, color: 'var(--color-text-primary)' }}>{h.id}</span>
-                  {h.ip && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>IP: {h.ip}</span>}
-                  {h.mac && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>MAC: {h.mac}</span>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 800, color: 'var(--color-text-primary)', fontSize: 15 }}>{h.id}</span>
+                  {h.ip && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>IP: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace', fontWeight: 500 }}>{h.ip}</span></span>}
+                  {h.mac && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>MAC: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace', fontWeight: 500 }}>{h.mac}</span></span>}
                 </div>
               </div>
             ))}

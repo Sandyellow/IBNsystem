@@ -20,7 +20,7 @@
 
   --color-text-primary: #0f172a;
   --color-text-secondary: #475569;
-  --color-text-muted: #94a3b8;
+  --color-text-muted: #64748b; /* Slightly darker for better readability */
 
   /* 新组件变量（与旧变量对齐） */
   --color-text: #0f172a;
@@ -38,7 +38,7 @@
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6; /* Increased line-height for reading comfort */
   color: var(--color-text-primary);
   background: var(--color-bg);
 }
@@ -129,18 +129,18 @@ body { overflow: hidden; height: 100vh; }
 }
 
 /* ─── Stats Cards ─────────────────────────────────── */
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } /* Slightly more gap */
 .stat-card {
   background: var(--color-bg-sidebar);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 12px 14px; /* Slightly more padding */
   transition: var(--transition);
 }
-.stat-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-sm); }
-.stat-card-label { font-size: 11px; color: var(--color-text-muted); margin-bottom: 4px; }
-.stat-card-value { font-size: 20px; font-weight: 700; color: var(--color-text-primary); }
-.stat-card-unit { font-size: 11px; color: var(--color-text-muted); }
+.stat-card:hover { border-color: var(--color-border-strong); background: var(--color-bg-card); }
+.stat-card-label { font-size: 12px; color: var(--color-text-muted); margin-bottom: 4px; }
+.stat-card-value { font-size: 22px; font-weight: 700; color: var(--color-text-primary); }
+.stat-card-unit { font-size: 12px; color: var(--color-text-muted); margin-left: 2px; }
 
 /* ─── Alert Items ─────────────────────────────────── */
 .alert-list { display: flex; flex-direction: column; gap: 6px; }
@@ -245,25 +245,26 @@ body { overflow: hidden; height: 100vh; }
 .intent-entry { display: flex; flex-direction: column; gap: 6px; }
 
 .bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 14px 18px;
+  border-radius: 16px;
   font-size: 13px;
-  line-height: 1.5;
-  max-width: 100%;
+  line-height: 1.6;
+  max-width: 92%;
   word-break: break-word;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 .bubble-user {
-  background: var(--color-primary);
+  background: #4f46e5;
   color: white;
   align-self: flex-end;
   border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
 }
 .bubble-system {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   align-self: flex-start;
   border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .bubble-warning {
   background: var(--color-warning-light);
@@ -329,8 +330,8 @@ body { overflow: hidden; height: 100vh; }
 /* ─── Intent Inner UI ─── */
 .intent-system-wrapper { display: flex; flex-direction: column; gap: 6px; }
 .parsed-intent-title { font-weight: 600; margin-bottom: 6px; color: var(--color-text-primary); }
-.parsed-intent-meta { font-size: 11px; color: var(--color-text-muted); }
-.parsed-intent-meta code { background: var(--color-bg-sidebar); padding: 2px 6px; border-radius: 4px; color: var(--color-primary); }
+.parsed-intent-meta { font-size: 11px; color: var(--color-text-muted); display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.parsed-intent-meta code { background: #f1f5f9; padding: 3px 8px; border-radius: 12px; color: #334155; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; border: 1px solid #e2e8f0; }
 .result-header { font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .code-block {
   margin: 0;
@@ -372,15 +373,15 @@ body { overflow: hidden; height: 100vh; }
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  background: var(--color-bg-sidebar);
-  border: 1px solid var(--color-border-strong);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 4px;
   transition: var(--transition);
 }
 .intent-input-wrapper:focus-within {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-light);
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
   background: white;
 }
 .intent-textarea {
@@ -402,7 +403,7 @@ body { overflow: hidden; height: 100vh; }
   width: 36px; height: 36px;
   border-radius: 8px;
   border: none;
-  background: var(--color-primary);
+  background: #4f46e5;
   color: white;
   display: flex;
   align-items: center;
@@ -413,8 +414,8 @@ body { overflow: hidden; height: 100vh; }
   margin-bottom: 2px;
   margin-right: 2px;
 }
-.intent-send-btn:hover:not(:disabled) { background: var(--color-primary-dark); transform: scale(1.05); }
-.intent-send-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-text-muted); }
+.intent-send-btn:hover:not(:disabled) { background: #4338ca; transform: scale(1.05); }
+.intent-send-btn:disabled { opacity: 0.5; cursor: not-allowed; background: #cbd5e1; color: #f1f5f9; }
 .intent-hint { font-size: 11px; color: var(--color-text-muted); text-align: center; margin-top: 8px; }
 
 /* Utility Classes */
@@ -443,7 +444,7 @@ body { overflow: hidden; height: 100vh; }
 /* ─── Node styles (React Flow) ────────────────────── */
 .topo-node {
   background: white;
-  border: 2px solid var(--color-border-strong);
+  border: 1px solid var(--color-border-strong); /* Less aggressive border */
   border-radius: var(--radius-md);
   padding: 10px 14px;
   display: flex;
@@ -453,14 +454,14 @@ body { overflow: hidden; height: 100vh; }
   min-width: 70px;
   cursor: pointer;
   transition: var(--transition);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04); /* Slightly softer shadow to compensate for border */
   font-size: 12px;
 }
 .topo-node:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.topo-node.selected { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
-.topo-node-icon { font-size: 22px; }
+.topo-node.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--color-primary-light); }
+.topo-node-icon { font-size: 22px; margin-bottom: 2px; }
 .topo-node-label { font-weight: 600; color: var(--color-text-primary); }
-.topo-node-ip { font-size: 10px; color: var(--color-text-muted); }
+.topo-node-ip { font-size: 10px; color: var(--color-text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
 
 .node-switch { border-color: #6366f1; }
 .node-switch .topo-node-label { color: #6366f1; }

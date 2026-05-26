@@ -12,7 +12,11 @@ const ACTION_LABELS = {
 
 function formatAction(action) {
   if (!action) return '-'
-  if (typeof action === 'string') return action
+  if (typeof action === 'string') {
+    if (action === 'OUTPUT:CONTROLLER') return '→ 控制器 (Controller)'
+    if (action.startsWith('OUTPUT:')) return `→ 端口 ${action.split(':')[1]}`
+    return action
+  }
   const t = (action.type || '').toUpperCase()
   const fmt = ACTION_LABELS[t]
   return fmt ? fmt(action) : `${t}`
@@ -32,36 +36,36 @@ const MAC_MAP = {
 }
 
 function formatMatch(match) {
-  if (!match || Object.keys(match).length === 0) return '全部 (ANY)'
+  if (!match || Object.keys(match).length === 0) return [{ label: '全部', value: '(ANY)' }]
   const parts = []
 
   // 处理常用协议类型
   const ethType = match.eth_type || match.dl_type
   if (ethType) {
     const typeInt = parseInt(ethType, 10) || ethType
-    parts.push(`协议: ${ETH_TYPE_MAP[typeInt] || `0x${typeInt.toString(16)}`}`)
+    parts.push({ label: '协议', value: ETH_TYPE_MAP[typeInt] || `0x${typeInt.toString(16)}` })
   }
 
   const inPort = match.in_port
-  if (inPort !== undefined) parts.push(`入端口: ${inPort}`)
+  if (inPort !== undefined) parts.push({ label: '入端口', value: inPort })
 
   const dlSrc = match.eth_src || match.dl_src
-  if (dlSrc) parts.push(`源MAC: ${MAC_MAP[dlSrc] || dlSrc}`)
+  if (dlSrc) parts.push({ label: '源MAC', value: MAC_MAP[dlSrc] || dlSrc })
 
   const dlDst = match.eth_dst || match.dl_dst
-  if (dlDst) parts.push(`目的MAC: ${MAC_MAP[dlDst] || dlDst}`)
+  if (dlDst) parts.push({ label: '目的MAC', value: MAC_MAP[dlDst] || dlDst })
 
   const nwSrc = match.ipv4_src || match.nw_src
-  if (nwSrc) parts.push(`源IP: ${nwSrc}`)
+  if (nwSrc) parts.push({ label: '源IP', value: nwSrc })
 
   const nwDst = match.ipv4_dst || match.nw_dst
-  if (nwDst) parts.push(`目的IP: ${nwDst}`)
+  if (nwDst) parts.push({ label: '目的IP', value: nwDst })
 
   const tpSrc = match.tcp_src || match.udp_src || match.tp_src
-  if (tpSrc) parts.push(`源端口: ${tpSrc}`)
+  if (tpSrc) parts.push({ label: '源端口', value: tpSrc })
 
   const tpDst = match.tcp_dst || match.udp_dst || match.tp_dst
-  if (tpDst) parts.push(`目的端口: ${tpDst}`)
+  if (tpDst) parts.push({ label: '目的端口', value: tpDst })
 
   const handledKeys = [
     'eth_type', 'dl_type', 'in_port', 'eth_src', 'dl_src', 
@@ -71,12 +75,8 @@ function formatMatch(match) {
   const unhandled = Object.entries(match).filter(([k]) => !handledKeys.includes(k))
   if (unhandled.length > 0) {
     unhandled.forEach(([k, v]) => {
-      parts.push(`${k.replace(/^(eth_|dl_|nw_|ipv4_|tcp_|udp_)/, '')}: ${v}`)
+      parts.push({ label: k.replace(/^(eth_|dl_|nw_|ipv4_|tcp_|udp_)/, ''), value: String(v) })
     })
-  }
-
-  if (parts.length === 0) {
-    return Object.entries(match).map(([k, v]) => `${k}=${v}`)
   }
 
   return parts
@@ -130,8 +130,12 @@ function FlowCard({ flow, isCustom }) {
           <div className="fc-matches">
             {(() => {
               const matches = formatMatch(flow.match || {})
-              if (typeof matches === 'string') return <span className="fc-match-tag">{matches}</span>
-              return matches.map((m, i) => <span key={i} className="fc-match-tag">{m}</span>)
+              return matches.map((m, i) => (
+                <span key={i} className="fc-match-tag">
+                  <span className="fc-match-label">{m.label}:</span>
+                  <span className="fc-match-value">{m.value}</span>
+                </span>
+              ))
             })()}
           </div>
         </div>
