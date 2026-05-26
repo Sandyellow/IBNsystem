@@ -1,195 +1,63 @@
-# IBN — Intent-Based Networking 使用手册
+<div align="center">
 
-> 基于自然语言的 SDN 网络管理系统。  
-> Windows 主机运行前端 + 后端，Ubuntu VM 运行 Ryu + Mininet + Agent。
+# IBN System (Intent-Based Networking)
 
----
+**基于大语言模型驱动的自然语言网络管理系统**
 
-## 一、系统架构
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-00a393.svg)](https://fastapi.tiangolo.com)
+[![React Vite](https://img.shields.io/badge/React-Vite-61DAFB.svg)](https://vitejs.dev/)
+[![Ryu Controller](https://img.shields.io/badge/SDN-Ryu-ff69b4.svg)](https://ryu-sdn.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-```
-Windows 主机
-├── frontend/   React + Vite       → http://localhost:5173
-└── backend/    FastAPI + uvicorn  → http://localhost:8000
+[**使用手册**](./USAGE.md) · [API 文档](http://localhost:8000/docs)
 
-Ubuntu VM (192.168.114.130)
-└── vm-agent/
-    ├── ryu_controller.py   Ryu SDN 控制器
-    ├── mininet_topology.py     Mininet 网络拓扑
-    └── agent.py            Flask 中间层 Agent  → :5000
-```
+</div>
 
 ---
 
-## 二、首次配置
+## 简介
 
-### 1. 搭建后端 Python 虚拟环境
+**IBN System** 是一个基于自然语言的网络管理系统。本系统结合了大语言模型（LLM）与软件定义网络（SDN）技术，支持网络管理员使用自然语言对网络状态进行查询与流量控制。
 
-在项目根目录下打开 Windows PowerShell，创建虚拟环境并安装依赖：
+系统通过 LLM 解析用户运维意图，将其规范化后直接映射为 Ryu 控制器的 API 调用，并通过 OpenFlow 协议下发流表规则，实现一种交互式、直观的网络管理方案。
 
-```powershell
-# 1. 创建虚拟环境 (在根目录下)
-python -m venv .venv
+## 核心特性
 
-# 2. 激活虚拟环境并安装后端依赖
-.\.venv\Scripts\pip install -r backend\requirements.txt
-```
+- **自然语言控制**：提供对话式的网络管理接口，支持流量管控、状态查询等多类意图的解析与参数提取。
+- **流水线架构**：采用“意图解析 → 策略执行 → 状态推送”的三步流水线机制，简化了中间转译层，直接对接近底层控制 API。
+- **动态拓扑发现**：基于 LLDP 协议自动获取底层网络的物理拓扑，并通过 Web 前端进行可视化拓扑渲染。
+- **安全拦截机制**：针对节点隔离、流表清空等高危控制操作引入二次确认机制，并在执行前进行基础策略冲突检测。
+- **实时状态同步**：利用 WebSocket 维持前后端双向通信，实时下发拓扑变更、端口流量统计数据及意图执行进度。
 
-### 2. 安装前端依赖
+## 技术栈
 
-```powershell
-cd frontend
-npm install
-cd ..
-```
+<details>
+<summary>展开查看详细技术栈</summary>
 
-### 3. 配置后端环境变量（必填）
+- **前端 (Frontend)**
+  - React 18 / Vite
+  - Zustand
+  - Vanilla CSS / Glassmorphism UI 设计规范
+- **后端 (Backend)**
+  - FastAPI
+  - Pydantic v2
+  - 兼容 OpenAI 格式的大模型接口 (支持本地及云端模型部署)
+- **底层网络 (SDN Infrastructure)**
+  - Ryu Controller (遵循 OpenFlow 1.3 规范)
+  - Mininet (网络拓扑仿真)
+  - Open vSwitch (OVS 虚拟交换机)
 
-```powershell
-Copy-Item backend\.env.example backend\.env
-notepad backend\.env
-```
+</details>
 
-在 `.env` 中填入你的大模型服务配置（系统采用标准 **OpenAI 兼容接口**，支持硅基流动 SiliconFlow、DeepSeek、本地 Ollama、vLLM 等任意兼容服务）：
+## 快速开始
 
-```env
-VM_AGENT_URL=http://192.168.114.130:5000
-RYU_REST_URL=http://192.168.114.130:8080
+本项目采用前后端分离架构，前端作为交互入口，后端核心引擎通过 HTTP 与部署在 Ubuntu 上的网络节点代理（VM Agent）进行通信。
 
-# 大模型配置 (OpenAI 兼容格式)
-LLM_BASE_URL=https://api.siliconflow.cn/v1
-LLM_API_KEY=sk-xxxxxxxxxxxxxxxx        ← 填入你的 API Key
-LLM_MODEL=Qwen/Qwen2.5-72B-Instruct    ← 指定模型名称
-```
+关于详细的环境依赖安装、变量配置步骤，以及系统目前支持的自然语言指令列表，请参阅独立的文档：
 
----
+**[《IBN System 部署与使用手册》(USAGE.md)](./USAGE.md)**
 
-## 三、启动步骤
+## 开源协议
 
-### Windows 端
-
-**终端 1 — 启动后端：**
-```powershell
-cd f:\DevelopmentProjects\AskAnything\backend
-..\.venv\Scripts\uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-**终端 2 — 启动前端：**
-```powershell
-cd f:\DevelopmentProjects\AskAnything\frontend
-npm run dev
-```
-
-访问 → http://localhost:5173
-
----
-
-### Ubuntu VM 端
-
-**将脚本文件传到 VM（首次）：**
-```powershell
-scp -r f:\DevelopmentProjects\AskAnything\vm-agent\* sdn@192.168.114.130:~/Desktop/vm-agent/
-```
-
-**一键启动（在 VM 终端执行）：**
-```bash
-cd ~/Desktop/vm-agent
-sudo bash startup.sh
-```
-
-> 💡 **提示**：为方便开发调试，`startup.sh` 执行后会将 Mininet 作为前台进程挂起，并保持在 `mininet>` 交互提示符下。Ryu 控制器和 VM Agent 会在后台守护运行。
-
----
-
-## 四、查看 VM 服务日志
-
-后台启动后，在 **VM 新终端** 中查看实时日志：
-
-```bash
-cd ~/Desktop/vm-agent
-
-# 同时查看所有服务日志（推荐）
-bash logs.sh
-
-# 只看 Ryu 控制器
-bash logs.sh ryu
-
-# 只看 Agent
-bash logs.sh agent
-```
-
-日志文件位置：`~/Desktop/vm-agent/logs/`
-- `ryu.log`     — Ryu 控制器输出（交换机连接、流表下发记录、LLDP 拓扑发现）
-- `agent.log`   — Flask Agent 的 HTTP 请求记录
-
-**停止所有服务：**
-```bash
-sudo bash ~/Desktop/vm-agent/stop.sh
-```
-
----
-
-## 五、自然语言意图示例
-
-在前端右侧「意图交互」框中输入以下指令：
-
-### 📊 查询类（立即返回数据）
-
-| 输入 | 说明 |
-|------|------|
-| `查看 s1 的流量统计` | 返回 s1 的 RX/TX 字节数 |
-| `查看所有交换机流量` | 返回全部交换机统计 |
-| `查看当前网络拓扑` | 返回节点数、链路数 |
-
-### ⚙️ 控制类（下发到 Ryu 执行）
-
-| 输入 | 说明 |
-|------|------|
-| `限制 h1 到 h3 带宽为 2Mbps` | 在 s1 上下发 Meter 限速规则 |
-| `限制 h2 到 h4 带宽为 5Mbps` | 同上，不同节点 |
-| `阻断 h1 和 h2 之间的通信` | 下发 DROP 流表（⚠️ 高危，需二次确认）|
-| `允许 h1 和 h3 互相通信` | 下发 ALLOW 流表 |
-| `删除 h1 到 h3 的流表规则` | 删除已有规则（⚠️ 高危，需二次确认）|
-| `将 h2 的流量重定向经由 s2` | 添加重定向路由规则 |
-| `设置 h1 到 h2 流量优先级为 500` | 调整流表 priority |
-
-> ⚠️ **高危操作**会在验证后暂停，要求你点击「确认执行」才会下发。
-> 💡 **架构边界说明**：系统遵循严格的 SDN 控制平面边界。物理链路断开/恢复（如 `link s1 s2 down`）属于底层硬件模拟操作，请在 Mininet CLI 终端中直接运行以测试系统告警；系统意图引擎专注处理 Ryu 控制平面能够覆盖的流量调度规则。
-
----
-
-## 六、系统流程说明
-
-```
-用户输入自然语言
-      ↓
-  LLM 解析（最多重试 3 次）
-      ↓
-  6层验证：
-    Schema → 白名单 → 节点存在 → 参数范围 → 安全红线 → 置信度
-      ↓ 全部通过
-  高危操作？→ 等待用户二次确认
-      ↓
-  策略生成（FlowRule / Meter / Routing）
-      ↓
-  下发到 VM Agent（:5000）
-      ↓
-  Agent 调用 Ryu REST API（:8080）
-      ↓
-  OVS 交换机执行 OpenFlow 规则
-      ↓
-  结果通过 WebSocket 推送前端（支持页面刷新对话历史恢复）
-```
-
----
-
-## 七、API 文档
-
-后端 Swagger 文档：http://localhost:8000/docs
-
-主要接口：
-- `POST /api/intent/process` — 提交意图
-- `GET  /api/intent/records` — 获取历史意图对话记录（用于页面刷新恢复）
-- `GET  /api/topology` — 获取当前拓扑（基于 Ryu LLDP 实时发现）
-- `GET  /api/network/status` — 获取网络状态
-- `WS   /ws` — WebSocket 实时推送
+本项目采用 [MIT 协议](LICENSE) 开源。
