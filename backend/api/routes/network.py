@@ -1,68 +1,132 @@
-"""拓扑、网络信息、告警 API 路由"""
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-import json
-from core.network_manager import network_manager
-from api.websocket_manager import ws_manager
+"""
+网络数据 API — 提供拓扑、流表、端口统计、Meter、活跃策略等真实数据
+所有数据直接来自 Ryu REST API，无模拟值
+"""
+from __future__ import annotations
+import logging
+from fastapi import APIRouter
 
-# ─── 拓扑路由 ──────────────────────────────────────────────
-topology_router = APIRouter(prefix="/api/topology", tags=["topology"])
+from core.ryu_client import ryu_client
+from core.topo_manager import topo_manager
+from core.policy_executor import policy_executor
 
-@topology_router.get("")
+router = APIRouter(prefix="/api", tags=["network"])
+logger = logging.getLogger(__name__)
+
+
+@router.get("/health")
+async def health():
+    """系统健康检查"""
+    ryu_ok = await ryu_client.ping()
+    return {
+        "status": "ok",
+        "ryu_connected": ryu_ok,
+        **topo_manager.get_status(),
+        "active_policies": len(policy_executor.get_active_policies()),
+    }
+
+
+# ── 拓扑 ──────────────────────────────────────────────────
+
+@router.get("/topology")
 async def get_topology():
-    return network_manager.get_topology_dict()
+    """获取当前网络拓扑（节点 + 链路）"""
+    return topo_manager.topology
 
-@topology_router.post("/refresh")
+
+@router.post("/topology/refresh")
 async def refresh_topology():
-    await network_manager.refresh_topology()
-    return network_manager.get_topology_dict()
+    """主动刷新拓扑"""
+    await topo_manager.refresh()
+    return topo_manager.topology
 
 
-# ─── 网络信息路由 ────────────────────────────────────────────
-network_router = APIRouter(prefix="/api/network", tags=["network"])
-
-@network_router.get("/status")
-async def get_status():
-    return network_manager.get_status()
-
-@network_router.get("/stats")
-async def get_stats():
-    from core.vm_connector import vm_connector
-    return await vm_connector.get_stats()
+@router.get("/hosts")
+async def get_hosts():
+    """获取主机列表（含 MAC、IP、连接信息）"""
+    return {"hosts": topo_manager.get_all_hosts()}
 
 
-# ─── 告警路由 ────────────────────────────────────────────────
-alerts_router = APIRouter(prefix="/api/alerts", tags=["alerts"])
+# ── 流表 ──────────────────────────────────────────────────
 
-@alerts_router.get("")
-async def get_alerts(limit: int = 50):
-    return {"alerts": network_manager.get_alerts(limit)}
+@router.get("/flows")
+async def get_all_flows():
+    """获取所有交换机的流表"""
+    dpids = topo_manager.get_all_switch_dpids()
+    result = {}
+    for dpid in dpids:
+        result[str(dpid)] = await ryu_client.get_flows(dpid)
+    return {
+        "flows": result,
+        "switch_count": len(dpids),
+        "total_entries": sum(len(v) for v in result.values()),
+    }
 
-@alerts_router.delete("/{alert_id}")
-async def resolve_alert(alert_id: str):
-    for alert in network_manager.alerts:
-        if alert.id == alert_id:
-            alert.resolved = True
-            return {"message": "已标记为已处理"}
-    return {"message": "告警不存在"}
+
+@router.get("/flows/{dpid}")
+async def get_flows_for_switch(dpid: int):
+    """获取指定交换机（dpid 整数）的流表"""
+    flows = await ryu_client.get_flows(dpid)
+    return {"dpid": dpid, "flows": flows, "count": len(flows)}
 
 
-# ─── WebSocket 路由 ──────────────────────────────────────────
-ws_router = APIRouter(tags=["websocket"])
+# ── 端口统计 ──────────────────────────────────────────────
 
-@ws_router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws_manager.connect(ws)
-    try:
-        # 立即推送当前拓扑
-        await ws.send_text(
-            json.dumps({
-                "type": "topology_update",
-                "data": network_manager.get_topology_dict()
-            }, ensure_ascii=False)
-        )
-        while True:
-            await ws.receive_text()   # 保持连接，接收 ping
-    except WebSocketDisconnect:
-        ws_manager.disconnect(ws)
-    except Exception:
-        ws_manager.disconnect(ws)
+@router.get("/port-stats")
+async def get_port_stats():
+    """获取所有交换机的端口统计（包计数、字节数、错误数）"""
+    dpids = topo_manager.get_all_switch_dpids()
+    result = {}
+    for dpid in dpids:
+        result[str(dpid)] = await ryu_client.get_port_stats(dpid)
+    return {"port_stats": result, "switch_count": len(dpids)}
+
+
+@router.get("/port-desc")
+async def get_port_desc():
+    """获取所有交换机的端口描述（接口名称等）"""
+    dpids = topo_manager.get_all_switch_dpids()
+    result = {}
+    for dpid in dpids:
+        result[str(dpid)] = await ryu_client.get_port_desc(dpid)
+    return {"port_desc": result}
+
+
+# ── Meter ─────────────────────────────────────────────────
+
+@router.get("/meters")
+async def get_meters():
+    """获取所有交换机的 Meter 配置（限速条目）"""
+    dpids = topo_manager.get_all_switch_dpids()
+    result = {}
+    for dpid in dpids:
+        result[str(dpid)] = await ryu_client.get_meter_config(dpid)
+    return {"meters": result}
+
+
+# ── 活跃策略 ──────────────────────────────────────────────
+
+@router.get("/policies")
+async def get_active_policies():
+    """获取 IBN 系统当前已下发的所有自定义策略"""
+    return {"policies": policy_executor.get_active_policies()}
+
+
+@router.delete("/policies/{policy_id}")
+async def delete_policy(policy_id: str):
+    """撤销指定策略（通过 cookie 从所有交换机精准删除对应流表）"""
+    ok, msg = await policy_executor.delete_policy(policy_id)
+    return {"success": ok, "message": msg}
+
+
+# ── 网络状态（兼容旧前端路由）────────────────────────────
+
+@router.get("/network/status")
+async def network_status():
+    return topo_manager.get_status()
+
+
+@router.get("/alerts")
+async def get_alerts():
+    """返回空告警列表（告警功能已简化）"""
+    return {"alerts": []}

@@ -2,11 +2,13 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # VM Agent
-    VM_AGENT_URL: str = "http://192.168.114.130:5000"
+    # Ryu REST API（直连，绕过 VM Agent）
     RYU_REST_URL: str = "http://192.168.114.130:8080"
 
-    # LLM 配置 (OpenAI 兼容格式)
+    # VM Agent（仅用于 ping 测试和主机静态配置）
+    VM_AGENT_URL: str = "http://192.168.114.130:5000"
+
+    # LLM（OpenAI 兼容格式）
     LLM_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "Qwen/Qwen2.5-72B-Instruct"

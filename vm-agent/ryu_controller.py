@@ -54,6 +54,14 @@ class IBNController(app_manager.RyuApp):
         eth = pkt.get_protocols(ethernet.ethernet)[0]
         dst, src = eth.dst, eth.src
 
+        # 核心修复：丢弃 LLDP 包，防止 L2 自学习交换机将其泛洪导致 rest_topology 产生幽灵链路
+        if eth.ethertype == 0x88cc:
+            return
+            
+        # 丢弃 IPv6 的多播/邻居发现包，防止产生不必要的泛洪风暴
+        if eth.ethertype == 0x86dd:
+            return
+
         self.mac_to_port.setdefault(dpid, {})
         self.mac_to_port[dpid][src] = in_port
 

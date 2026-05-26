@@ -41,6 +41,16 @@ def safe_json(resp):
 def ping():
     return jsonify({"status": "ok", "timestamp": time.time()})
 
+
+# ─────────────────────────────────────────────────────
+#  主机静态配置 — 返回 topology_config.json 中的主机信息
+#  供 Windows 后端获取 MAC/IP 做流表匹配
+# ─────────────────────────────────────────────────────
+@app.route("/hosts")
+def get_hosts():
+    hosts = load_host_config()
+    return jsonify({"hosts": hosts, "count": len(hosts)})
+
 # ─────────────────────────────────────────────────────
 #  诊断端点 — 查看 Ryu 原始返回（调试用）
 #  在 Ubuntu VM 上访问: http://127.0.0.1:5000/debug/ryu
@@ -236,6 +246,22 @@ def get_stats():
         return jsonify({"switches": switches, "timestamp": time.time()})
     except Exception as e:
         return jsonify({"switches": [], "error": str(e)})
+
+
+# ─────────────────────────────────────────────────────
+#  流表信息 — 从 Ryu 获取指定交换机的流表
+# ─────────────────────────────────────────────────────
+@app.route("/flows/<dpid>")
+def get_flows(dpid):
+    try:
+        resp = requests.get(f"{RYU_BASE}/stats/flow/{dpid}", timeout=5)
+        if not resp.ok:
+            return jsonify({"flows": [], "error": f"Ryu HTTP {resp.status_code}"})
+        data = resp.json()
+        flows = data.get(str(dpid), [])
+        return jsonify({"flows": flows, "timestamp": time.time()})
+    except Exception as e:
+        return jsonify({"flows": [], "error": str(e)})
 
 
 # ── 端口采样缓存：{dpid_portno: (timestamp, bytes_total)} ──
@@ -487,6 +513,60 @@ def exec_mininet_cmd():
         return jsonify({"success": False, "error": "命令执行超时"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+
+# ─────────────────────────────────────────────────────
+#  Mininet 主机间 ping 测试
+#  通过 ip netns exec 在对应主机网络命名空间内执行 ping
+# ─────────────────────────────────────────────────────
+@app.route("/mininet/ping", methods=["POST"])
+def mininet_ping():
+    data = request.json or {}
+    src = data.get("src", "")
+    dst_ip = data.get("dst_ip", "")
+    count = int(data.get("count", 4))
+
+    if not src or not dst_ip:
+        return jsonify({"success": False, "error": "需要 src 和 dst_ip 参数"})
+
+    # 利用 ip netns exec 在 Mininet 主机命名空间内执行 ping
+    # Mininet 主机命名空间名与主机名相同（如 h1, h2）
+    try:
+        result = subprocess.run(
+            ["ip", "netns", "exec", src, "ping", "-c", str(count), "-W", "2", dst_ip],
+            capture_output=True, text=True, timeout=count * 3 + 5
+        )
+        output = result.stdout + result.stderr
+        success = result.returncode == 0
+
+        # 解析 ping 统计
+        import re as _re
+        packet_loss = None
+        avg_rtt_ms = None
+        loss_match = _re.search(r'(\d+)% packet loss', output)
+        rtt_match = _re.search(r'rtt min/avg/max/mdev = [\d.]+/([\d.]+)/', output)
+        if loss_match:
+            packet_loss = int(loss_match.group(1))
+        if rtt_match:
+            avg_rtt_ms = float(rtt_match.group(1))
+
+        summary = (
+            f"{src} → {dst_ip}: "
+            f"{'连通' if success else '不通'}"
+            f"{', 丢包 ' + str(packet_loss) + '%' if packet_loss is not None else ''}"
+            f"{', RTT avg=' + str(avg_rtt_ms) + 'ms' if avg_rtt_ms is not None else ''}"
+        )
+        return jsonify({
+            "success": success,
+            "output": output,
+            "packet_loss": packet_loss,
+            "avg_rtt_ms": avg_rtt_ms,
+            "summary": summary,
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "error": "ping 超时", "output": ""})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "output": ""})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,157 @@
+.policy-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.policy-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.policy-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.policy-count-badge {
+  background: #fc814a;
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.policy-refresh-btn {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.policy-refresh-btn:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.policy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.policy-card {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--policy-color, var(--color-primary));
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: background 0.15s;
+}
+.policy-card:hover { background: rgba(255,255,255,0.04); }
+
+.policy-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.policy-icon { font-size: 13px; }
+
+.policy-type-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.policy-age {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+.policy-revoke-btn {
+  background: rgba(252, 129, 74, 0.1);
+  border: 1px solid rgba(252, 129, 74, 0.3);
+  color: #fc814a;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-left: 4px;
+}
+.policy-revoke-btn:hover:not(:disabled) {
+  background: rgba(252, 129, 74, 0.25);
+}
+.policy-revoke-btn.revoking {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.policy-description {
+  font-size: 11px;
+  color: var(--color-text);
+}
+
+.policy-hosts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.host-tag {
+  background: rgba(99, 179, 237, 0.15);
+  color: #63b3ed;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.host-arrow {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.policy-meta {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: 'Roboto Mono', monospace;
+}
+
+.policy-empty {
+  text-align: center;
+  padding: 20px 12px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  background: var(--color-surface-2);
+  border-radius: 8px;
+  border: 1px dashed var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.policy-empty-icon {
+  font-size: 22px;
+  color: #68d391;
+}
+.policy-empty-sub {
+  font-size: 10px;
+  opacity: 0.6;
+}

@@ -3,6 +3,7 @@ import useStore from '../store/useStore'
 
 export function useWebSocket() {
   const wsRef = useRef(null)
+
   useEffect(() => {
     let reconnectTimer = null
 
@@ -28,7 +29,17 @@ export function useWebSocket() {
               state.addAlert(msg.data)
               break
             case 'intent_update':
-              state.updateIntentRecord(msg.data)
+              // 先检查是否在历史中，不在则先添加
+              const existing = state.intentHistory.find(r => r.id === msg.data.id)
+              if (!existing) {
+                state.addIntentRecord(msg.data)
+              } else {
+                state.updateIntentRecord(msg.data)
+              }
+              break
+            case 'policy_update':
+              // 触发 PolicyPanel 刷新
+              state.triggerPolicyUpdate()
               break
             default:
               break
@@ -57,7 +68,7 @@ export function useWebSocket() {
     }
   }, [])
 
-  // 保持心跳
+  // 心跳
   useEffect(() => {
     const timer = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {

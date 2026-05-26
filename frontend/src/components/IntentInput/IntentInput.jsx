@@ -1,193 +1,231 @@
 import { useState, useRef, useEffect } from 'react'
 import useStore from '../../store/useStore'
 import {
-  BrainCircuit, Search, Send, Clock, PlayCircle, Loader2,
-  CheckCircle2, XCircle, AlertTriangle, Terminal,
-  BarChart3, Globe2, ChevronDown, ChevronUp, Check, X
+  BrainCircuit, Search, Clock, Zap, CheckCircle2, XCircle, AlertTriangle, Network,
+  ArrowRightLeft, Activity, ShieldAlert, CheckSquare, Clock4, TrendingUp, CornerDownRight,
+  ActivitySquare, Trash2, Send, Lightbulb, ChevronDown, ChevronUp, ChevronRight
 } from 'lucide-react'
 
-const STATUS_ICONS = {
-  pending: <Clock className="w-3 h-3" />,
-  validating: <Search className="w-3 h-3" />,
-  executing: <PlayCircle className="w-3 h-3" />,
-  success: <CheckCircle2 className="w-3 h-3" />,
-  failed: <XCircle className="w-3 h-3" />,
-  rejected: <AlertTriangle className="w-3 h-3" />,
-  confirmed: <Clock className="w-3 h-3" />,
+const STATUS_CONFIG = {
+  pending:   { cls: 'badge-pending',   label: '排队中',  icon: <Clock size={12} /> },
+  parsing:   { cls: 'badge-validating', label: '解析中', icon: <Search size={12} /> },
+  executing: { cls: 'badge-executing', label: '执行中',  icon: <Zap size={12} /> },
+  success:   { cls: 'badge-success',   label: '成功',    icon: <CheckCircle2 size={12} /> },
+  failed:    { cls: 'badge-failed',    label: '失败',    icon: <XCircle size={12} /> },
 }
 
-const STATUS_LABEL = {
-  pending: ['badge-pending', '排队中'],
-  validating: ['badge-validating', '验证中'],
-  executing: ['badge-executing', '执行中'],
-  success: ['badge-success', '成功'],
-  failed: ['badge-failed', '失败'],
-  rejected: ['badge-rejected', '拒绝'],
-  confirmed: ['badge-confirmed', '待确认'],
+const ACTION_ICONS = {
+  query_topology:   <Network size={14} />,
+  query_flows:      <ArrowRightLeft size={14} />,
+  query_port_stats: <Activity size={14} />,
+  block_traffic:    <ShieldAlert size={14} />,
+  allow_traffic:    <CheckSquare size={14} />,
+  rate_limit:       <Clock4 size={14} />,
+  set_priority:     <TrendingUp size={14} />,
+  redirect_traffic: <CornerDownRight size={14} />,
+  ping_test:        <ActivitySquare size={14} />,
+  clear_flows:      <Trash2 size={14} />,
 }
 
-const LAYER_NAME = {
-  schema: 'Schema',
-  action_whitelist: '白名单',
-  node_existence: '节点存在',
-  param_range: '参数范围',
-  safety: '安全检查',
-  conflict: '置信度',
-}
+// 快捷操作模板
+const QUICK_ACTIONS = [
+  { label: '查看拓扑', text: '显示当前网络拓扑结构', icon: <Network size={12} /> },
+  { label: '查看流表', text: '查看所有交换机的流表', icon: <ArrowRightLeft size={12} /> },
+  { label: '端口统计', text: '查看所有交换机的端口流量统计', icon: <Activity size={12} /> },
+  { label: '隔离主机', text: '隔离 h1 和 h3 的通信', icon: <ShieldAlert size={12} /> },
+  { label: '带宽限速', text: '限制 h2 到 h4 的带宽为 5Mbps', icon: <Clock4 size={12} /> },
+  { label: '连通测试', text: '测试 h1 和 h2 之间的连通性', icon: <ActivitySquare size={12} /> },
+  { label: '恢复通信', text: '恢复 h1 和 h3 的通信', icon: <CheckSquare size={12} /> },
+  { label: '高优先级', text: '给 h1 到 h2 的流量设置优先级 300', icon: <TrendingUp size={12} /> },
+]
 
-function ValidationReport({ report }) {
-  if (!report) return null
-  return (
-    <div className="validation-report">
-      {report.layers.map((layer, i) => (
-        <div key={i} className="validation-layer">
-          <span className={`vl-icon ${layer.passed ? 'text-success' : 'text-danger'}`}>
-            {layer.passed ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
-          </span>
-          <span className="vl-label">{LAYER_NAME[layer.layer] || layer.layer}</span>
-          <span className="vl-msg">{layer.message}</span>
+function ResultDisplay({ result, action }) {
+  if (!result) return null
+
+  // ping_test 结果
+  if (result.type === 'ping_test') {
+    const success = result.success
+    return (
+      <div className={`bubble ${success ? 'bubble-system' : 'bubble-error'}`}>
+        <div className="result-header" style={{ color: success ? '#48bb78' : '#fc814a' }}>
+          <ActivitySquare size={16} /> {result.message || 'Ping 测试结果'}
         </div>
-      ))}
+        {result.avg_rtt_ms != null && (
+          <div style={{ fontSize: 11, marginTop: 4 }}>
+            平均 RTT: <strong>{result.avg_rtt_ms}ms</strong>
+            {result.packet_loss != null && ` | 丢包率: ${result.packet_loss}%`}
+          </div>
+        )}
+        {result.output && (
+          <pre className="code-block" style={{ marginTop: 6, fontSize: 10 }}>
+            {result.output.slice(0, 500)}
+          </pre>
+        )}
+      </div>
+    )
+  }
+
+  // query_topology 结果
+  if (result.type === 'query_topology') {
+    const nodes = result.data?.nodes || []
+    const switches = nodes.filter(n => n.type === 'switch').length
+    const hosts = nodes.filter(n => n.type === 'host').length
+    return (
+      <div className="bubble bubble-system">
+        <div className="result-header" style={{ color: '#63b3ed' }}>
+          <Network size={16} /> {result.message}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 5 }}>
+          {[['交换机', switches, '#63b3ed'], ['主机', hosts, '#68d391']].map(([l, v, c]) => (
+            <div key={l} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '4px 10px', textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: c }}>{v}</div>
+              <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // query_flows 结果
+  if (result.type === 'query_flows') {
+    const flows = result.data || {}
+    return (
+      <div className="bubble bubble-system">
+        <div className="result-header" style={{ color: '#63b3ed' }}>
+          <ArrowRightLeft size={16} /> {result.message}
+        </div>
+        <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {Object.entries(flows).map(([dpid, entries]) => (
+            <div key={dpid} style={{ fontSize: 11, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ color: '#63b3ed', fontFamily: 'monospace' }}>dpid={dpid}</span>
+              <span style={{ color: 'var(--color-text-muted)' }}>{entries.length} 条规则</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          ← 切换左侧「流表」Tab 查看详情
+        </div>
+      </div>
+    )
+  }
+
+  // query_port_stats 结果
+  if (result.type === 'query_port_stats') {
+    return (
+      <div className="bubble bubble-system">
+        <div className="result-header" style={{ color: '#f6e05e' }}>
+          <Activity size={16} /> {result.message}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          ← 切换左侧「端口统计」Tab 查看详情
+        </div>
+      </div>
+    )
+  }
+
+  // 控制类操作成功结果
+  const controlColors = {
+    block_traffic: '#fc814a',
+    allow_traffic: '#48bb78',
+    rate_limit: '#f6e05e',
+    set_priority: '#68d391',
+    redirect_traffic: '#63b3ed',
+    clear_flows: '#a0aec0',
+  }
+  const color = controlColors[result.type] || '#48bb78'
+
+  return (
+    <div className="bubble bubble-system">
+      <div className="result-header" style={{ color }}>
+        {ACTION_ICONS[result.type] || <CheckCircle2 size={16} />} {result.message}
+      </div>
+      {result.installed_on && (
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          已下发到: {result.installed_on.join(', ')}
+        </div>
+      )}
+      {result.meter_id && (
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2 }}>
+          Meter ID: #{result.meter_id} | {result.rate_kbps}Kbps
+        </div>
+      )}
+      {result.src_mac && (
+        <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 2, fontFamily: 'monospace' }}>
+          {result.src_mac} ↔ {result.dst_mac}
+        </div>
+      )}
+      <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
+        ← 切换左侧「活跃策略」Tab 查看详情
+      </div>
     </div>
   )
 }
 
 function IntentBubble({ record }) {
-  const confirmIntent = useStore(s => s.confirmIntent)
   const [showDev, setShowDev] = useState(false)
-  const [badgeClass, badgeLabel] = STATUS_LABEL[record.status] || ['badge-pending', record.status]
-  const isLoading = ['pending', 'validating', 'executing'].includes(record.status)
+  const cfg = STATUS_CONFIG[record.status] || STATUS_CONFIG.pending
+  const isLoading = ['pending', 'parsing', 'executing'].includes(record.status)
+  const intent = record.parsed_intent
 
   return (
     <div className="intent-entry">
       {/* 用户输入 */}
       <div className="bubble bubble-user">{record.user_text}</div>
 
-      {/* 系统回复 */}
+      {/* 系统回复区 */}
       <div className="intent-system-wrapper">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span className={`intent-status-badge ${badgeClass}`}>
-            {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : STATUS_ICONS[record.status]}
-            {badgeLabel}
+          <span className={`intent-status-badge ${cfg.cls}`}>
+            {isLoading ? <span className="spin-icon">⟳</span> : cfg.icon}
+            {cfg.label}
             {record.llm_retries > 0 && ` (重试${record.llm_retries}次)`}
           </span>
         </div>
 
-        {record.parsed_intent && (
+        {/* 解析结果气泡 */}
+        {intent && (
           <div className="bubble bubble-system">
             <div className="parsed-intent-title">
-              {record.parsed_intent.explanation}
+              {ACTION_ICONS[intent.action] || <CheckSquare size={14} />} {intent.explanation}
             </div>
             <div className="parsed-intent-meta">
-              操作: <code>{record.parsed_intent.action}</code>
-              {record.parsed_intent.source_node && ` | 源: ${record.parsed_intent.source_node}`}
-              {record.parsed_intent.target_node && ` | 目: ${record.parsed_intent.target_node}`}
+              <code>{intent.action}</code>
+              {intent.src_host && ` | 源: ${intent.src_host}`}
+              {intent.dst_host && ` | 目标: ${intent.dst_host}`}
+              {intent.target_switch && ` | 交换机: ${intent.target_switch}`}
             </div>
           </div>
         )}
 
-        {record.validation_report && (
-          <ValidationReport report={record.validation_report} />
+        {/* 执行结果 */}
+        {record.status === 'success' && record.execution_result && (
+          <ResultDisplay result={record.execution_result} action={intent?.action} />
         )}
 
-        {record.status === 'confirmed' && (
-          <div className="bubble bubble-warning">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="w-4 h-4" />
-              <span>这是高危操作，请确认是否执行？</span>
-            </div>
-            <div className="confirm-actions">
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => confirmIntent(record.id)}
-              >确认执行</button>
-              <button className="btn btn-sm">取消</button>
-            </div>
-          </div>
-        )}
-
+        {/* 错误信息 */}
         {record.status === 'failed' && record.error_message && (
-          <div className="bubble bubble-error">
-            <XCircle className="w-4 h-4 inline mr-1" />
-            {record.error_message}
+          <div className="bubble bubble-error" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <XCircle size={14} /> {record.error_message}
           </div>
         )}
 
-        {record.status === 'success' && record.execution_result && (() => {
-          const result = record.execution_result
-          if (result.type === 'stats') {
-            return (
-              <div className="bubble bubble-system">
-                <div className="result-header text-success">
-                  <BarChart3 className="w-4 h-4" />
-                  {result.target} 流量统计
-                </div>
-                {result.summary ? (
-                  <pre className="code-block">{result.summary}</pre>
-                ) : (
-                  <span className="text-muted">暂无流量数据（尝试在 Mininet 中 ping 一下）</span>
-                )}
-                {result.data && result.data.length > 0 && result.data[0].ports && (
-                  <div className="text-muted mt-1 text-xs">
-                    端口数: {result.data[0].ports.length}
-                  </div>
-                )}
-              </div>
-            )
-          }
-          if (result.type === 'topology') {
-            return (
-              <div className="bubble bubble-system">
-                <div className="result-header text-success">
-                  <Globe2 className="w-4 h-4" />
-                  {result.message}
-                </div>
-              </div>
-            )
-          }
-          return (
-            <div className="bubble bubble-system text-success flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" />
-              策略已成功下发到 Ryu 控制器
-              {result.has_rollback && ' (支持回滚)'}
-            </div>
-          )
-        })()}
-
-        {/* 开发者详情按钮 */}
+        {/* 开发者详情 */}
         <div className="dev-toggle-container">
-          <button 
-            className="btn-dev-toggle" 
-            onClick={() => setShowDev(!showDev)}
-          >
-            <Terminal className="w-3 h-3" />
-            {showDev ? '隐藏开发者详情' : '开发者详情'}
-            {showDev ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          <button className="btn-dev-toggle" onClick={() => setShowDev(!showDev)}>
+            {showDev ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {showDev ? '隐藏详情' : '查看详情'}
           </button>
         </div>
 
-        {/* 开发者详情面板 */}
         {showDev && (
           <div className="bubble bubble-dev">
-            <div className="dev-section-title">// 意图解析结果</div>
-            <pre className="dev-code">
-              {JSON.stringify(record.parsed_intent || {}, null, 2)}
-            </pre>
-            
-            {record.execution_result?.policy && (
+            <div className="dev-section-title">// 解析结果</div>
+            <pre className="dev-code">{JSON.stringify(intent || {}, null, 2)}</pre>
+            {record.execution_result && (
               <>
-                <div className="dev-section-title mt-2">// 下发网络策略</div>
+                <div className="dev-section-title mt-2">// 执行结果</div>
                 <pre className="dev-code">
-                  {JSON.stringify(record.execution_result.policy, null, 2)}
-                </pre>
-              </>
-            )}
-            
-            {record.execution_result?.vm_response && (
-              <>
-                <div className="dev-section-title mt-2">// 控制器响应</div>
-                <pre className="dev-code">
-                  {JSON.stringify(record.execution_result.vm_response, null, 2)}
+                  {JSON.stringify(record.execution_result, null, 2).slice(0, 1000)}
                 </pre>
               </>
             )}
@@ -200,9 +238,9 @@ function IntentBubble({ record }) {
 
 export default function IntentInput() {
   const [text, setText] = useState('')
+  const [showQuickActions, setShowQuickActions] = useState(false)
   const { submitIntent, isProcessing, intentHistory } = useStore()
   const bottomRef = useRef(null)
-  const textareaRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -212,6 +250,7 @@ export default function IntentInput() {
     const t = text.trim()
     if (!t || isProcessing) return
     setText('')
+    setShowQuickActions(false)
     await submitIntent(t)
   }
 
@@ -222,37 +261,41 @@ export default function IntentInput() {
     }
   }
 
-  const SUGGESTIONS = [
-    '查看 s1 的流量统计',
-    '限制 h1 到 h3 带宽为 5Mbps',
-    '封锁 h2 和 h4 之间的通信',
-  ]
+  const handleQuickAction = (actionText) => {
+    setText(actionText)
+    setShowQuickActions(false)
+  }
 
   return (
     <>
       <div className="intent-header">
         <div className="intent-title">
-          <BrainCircuit className="w-4 h-4 text-primary" />
-          意图交互
+          <BrainCircuit size={18} className="text-primary" /> 意图交互
         </div>
-        <div className="intent-subtitle">使用自然语言编排网络策略</div>
+        <div className="intent-subtitle">用自然语言控制 SDN 网络</div>
       </div>
 
       <div className="intent-history">
         {intentHistory.length === 0 && (
-          <div className="intent-suggestions">
-            <div className="suggestions-title">快速尝试：</div>
-            {SUGGESTIONS.map((s, i) => (
-              <div
-                key={i}
-                className="suggestion-chip"
-                onClick={() => setText(s)}
-              >
-                {s}
-              </div>
-            ))}
+          <div style={{ padding: '16px 0' }}>
+            <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Lightbulb size={14} /> 快捷操作
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {QUICK_ACTIONS.map((a, i) => (
+                <button
+                  key={i}
+                  className="suggestion-chip"
+                  onClick={() => handleQuickAction(a.text)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  {a.icon} {a.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
+
         {[...intentHistory].reverse().map(record => (
           <IntentBubble key={record.id} record={record} />
         ))}
@@ -260,15 +303,41 @@ export default function IntentInput() {
       </div>
 
       <div className="intent-input-area">
+        {/* 快捷操作展开 */}
+        {intentHistory.length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <button
+              className="btn-dev-toggle"
+              onClick={() => setShowQuickActions(!showQuickActions)}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              <Lightbulb size={12} /> 快捷操作 {showQuickActions ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+            {showQuickActions && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 5 }}>
+                {QUICK_ACTIONS.map((a, i) => (
+                  <button
+                    key={i}
+                    className="suggestion-chip"
+                    onClick={() => handleQuickAction(a.text)}
+                    style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}
+                  >
+                    {a.icon} {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="intent-input-wrapper">
           <textarea
-            ref={textareaRef}
             className="intent-textarea"
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="描述你的网络操作需求..."
-            rows={1}
+            placeholder="描述你的网络管理需求，例如：隔离 h1 和 h3 的通信"
+            rows={2}
             disabled={isProcessing}
           />
           <button
@@ -277,12 +346,10 @@ export default function IntentInput() {
             disabled={!text.trim() || isProcessing}
             title="发送 (Enter)"
           >
-            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {isProcessing ? <span className="spin-icon"><Clock size={16} /></span> : <Send size={16} />}
           </button>
         </div>
-        <div className="intent-hint">
-          Enter 发送 · Shift+Enter 换行
-        </div>
+        <div className="intent-hint">Enter 发送 · Shift+Enter 换行</div>
       </div>
     </>
   )

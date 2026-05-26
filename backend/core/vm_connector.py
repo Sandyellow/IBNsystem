@@ -80,6 +80,17 @@ class VMConnector:
             logger.error(f"[VMConnector] get_link_stats failed: {e}")
             return {"links": [], "error": str(e)}
 
+    async def get_flows(self, dpid: str) -> Dict[str, Any]:
+        """获取指定交换机的流表"""
+        try:
+            client = await self._get_client()
+            resp = await client.get(f"/flows/{dpid}")
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error(f"[VMConnector] get_flows failed for dpid {dpid}: {e}")
+            return {"flows": [], "error": str(e)}
+
     # ───── 策略执行 ───────────────────────────────────────
     async def apply_policy(self, policy: Dict[str, Any]) -> Dict[str, Any]:
         """将策略下发到 VM Agent 执行"""

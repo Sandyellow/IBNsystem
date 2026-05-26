@@ -1,65 +1,231 @@
+import { useState } from 'react'
 import useStore from '../../store/useStore'
+import FlowTable from '../FlowTable/FlowTable'
+import PortStats from '../PortStats/PortStats'
+import PolicyPanel from '../PolicyPanel/PolicyPanel'
+import { Network, ArrowRightLeft, Activity, ShieldCheck, Server, ShieldAlert, Cpu, AlertTriangle, AlertCircle, Info, CheckCircle2 } from 'lucide-react'
 
-export default function NetworkInfo() {
-  const status = useStore(s => s.networkStatus)
+const TABS = [
+  { id: 'topo', label: '拓扑信息', icon: Network },
+  { id: 'flows', label: '流表', icon: ArrowRightLeft },
+  { id: 'ports', label: '端口统计', icon: Activity },
+  { id: 'policies', label: '活跃策略', icon: ShieldCheck },
+  { id: 'alerts', label: '系统告警', icon: AlertTriangle },
+]
+
+function TopoInfo() {
   const topology = useStore(s => s.topology)
+  const networkStatus = useStore(s => s.networkStatus)
 
-  const links = topology.links ?? []
-  const downLinks = links.filter(l => l.state === 'down').length
-
-  // 平均延迟：只取有值（> 0）的链路
-  const latencyLinks = links.filter(l => l.latency_ms != null && l.latency_ms > 0)
-  const avgLatency = latencyLinks.length > 0
-    ? latencyLinks.reduce((sum, l) => sum + l.latency_ms, 0) / latencyLinks.length
-    : null
-
-  // 平均链路利用率：只取有值的链路
-  const utilLinks = links.filter(l => l.utilization_pct != null)
-  const avgUtil = utilLinks.length > 0
-    ? utilLinks.reduce((sum, l) => sum + l.utilization_pct, 0) / utilLinks.length
-    : null
+  const nodes = topology?.nodes || []
+  const links = topology?.links || []
+  const switches = nodes.filter(n => n.type === 'switch')
+  const hosts = nodes.filter(n => n.type === 'host')
+  const swLinks = links.filter(l => !l.source.startsWith('h') && !l.target.startsWith('h'))
 
   return (
-    <div className="sidebar-section">
-      <div className="sidebar-title">网络概览</div>
-      <div className="stat-grid">
-        <div className="stat-card">
-          <div className="stat-card-label">节点数</div>
-          <div className="stat-card-value">{status.node_count || topology.nodes?.length || 0}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-label">链路数</div>
-          <div className="stat-card-value">{status.link_count || links.length || 0}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-label">断链</div>
-          <div
-            className="stat-card-value"
-            style={{ color: downLinks > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}
-          >
-            {downLinks}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card-label">平均延迟</div>
-          <div className="stat-card-value">
-            {avgLatency != null ? avgLatency.toFixed(1) : '—'}
-            <span className="stat-card-unit"> ms</span>
-          </div>
-        </div>
-        <div className="stat-card" style={{ gridColumn: 'span 2' }}>
-          <div className="stat-card-label">平均链路负载</div>
-          <div className="stat-card-value" style={{
-            color: avgUtil != null && avgUtil > 70
-              ? 'var(--color-danger)'
-              : avgUtil != null && avgUtil > 40
-                ? 'var(--color-warning, #f59e0b)'
-                : undefined
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* 状态概览 */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        {[
+          { label: '交换机', value: switches.length, color: '#63b3ed' },
+          { label: '主机', value: hosts.length, color: '#68d391' },
+          { label: '链路', value: swLinks.length, color: '#f6e05e' },
+          { label: '活跃告警', value: networkStatus?.active_alerts || 0, color: '#fc814a' },
+        ].map(item => (
+          <div key={item.label} style={{
+            background: 'var(--color-surface-2)',
+            border: '1px solid var(--color-border)',
+            borderRadius: 8,
+            padding: '8px 10px',
           }}>
-            {avgUtil != null ? avgUtil.toFixed(1) : '—'}
-            <span className="stat-card-unit"> %</span>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 2 }}>{item.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 交换机列表 */}
+      {switches.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 5, fontWeight: 600 }}>交换机</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {switches.map(sw => (
+              <div key={sw.id} style={{
+                background: 'var(--color-surface-2)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 6,
+                padding: '5px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+              }}>
+                <Cpu size={14} color="#63b3ed" />
+                <span style={{ fontWeight: 600 }}>{sw.id}</span>
+                {sw.dpid && (
+                  <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                    dpid={sw.dpid}
+                  </span>
+                )}
+                {sw.port_count != null && (
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-text-muted)' }}>
+                    {sw.port_count} 端口
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
+      )}
+
+      {/* 主机列表 */}
+      {hosts.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 5, fontWeight: 600 }}>主机</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {hosts.map(h => (
+              <div key={h.id} style={{
+                background: 'var(--color-surface-2)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 6,
+                padding: '5px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+              }}>
+                <Server size={14} color="#68d391" />
+                <span style={{ fontWeight: 600 }}>{h.id}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {h.ip && <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>IP: {h.ip}</span>}
+                  {h.mac && <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>MAC: {h.mac}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {nodes.length === 0 && (
+        <div style={{
+          textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 12,
+          padding: '20px 12px', background: 'var(--color-surface-2)',
+          borderRadius: 8, border: '1px dashed var(--color-border)',
+        }}>
+          <Network size={24} style={{ opacity: 0.5, marginBottom: 6 }} />
+          <div>等待 Ryu 连接...</div>
+          <div style={{ fontSize: 10, marginTop: 4, opacity: 0.6 }}>确保 VM 上的 Ryu 和 Mininet 正在运行</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function timeAgo(ts) {
+  const diff = Math.floor(Date.now() / 1000 - ts)
+  if (diff < 60) return `${diff}s 前`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m 前`
+  return `${Math.floor(diff / 3600)}h 前`
+}
+
+function AlertsTab() {
+  const alerts = useStore(s => s.alerts)
+  const active = alerts.filter(a => !a.resolved)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)' }}>实时告警</span>
+        {active.length > 0 && (
+          <span style={{
+            background: 'var(--color-danger)',
+            color: 'white',
+            fontSize: 10,
+            fontWeight: 700,
+            padding: '1px 6px',
+            borderRadius: 20,
+          }}>
+            {active.length}
+          </span>
+        )}
+      </div>
+      <div className="alert-list" style={{ overflowY: 'auto', flex: 1 }}>
+        {active.length === 0 ? (
+          <div className="alert-empty">
+            <CheckCircle2 size={24} color="#10b981" style={{ marginBottom: 6 }} />
+            <div>网络运行正常</div>
+          </div>
+        ) : (
+          active.slice(0, 20).map(alert => {
+            const Icon = alert.severity === 'critical' ? ShieldAlert : (alert.severity === 'warning' ? AlertTriangle : Info)
+            return (
+              <div key={alert.id} className={`alert-item ${alert.severity}`}>
+                <span className="alert-icon" style={{ marginTop: 2 }}>
+                  <Icon size={14} />
+                </span>
+                <div className="alert-content">
+                  <div className="alert-message">{alert.message}</div>
+                  <div className="alert-time">{timeAgo(alert.timestamp)}</div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function NetworkInfo() {
+  const [activeTab, setActiveTab] = useState('topo')
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0, overflow: 'hidden' }}>
+      {/* Tab 导航 */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '1px solid var(--color-border)',
+        background: 'var(--color-surface-2)',
+        padding: '0 4px',
+      }}>
+        {TABS.map(tab => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                flex: 1,
+                background: 'none',
+                border: 'none',
+                borderBottom: activeTab === tab.id ? '2px solid var(--color-primary)' : '2px solid transparent',
+                color: activeTab === tab.id ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                padding: '8px 2px',
+                fontSize: 11,
+                fontWeight: activeTab === tab.id ? 700 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <Icon size={16} />
+              <span style={{ fontSize: 9 }}>{tab.label}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Tab 内容 */}
+      <div style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
+        {activeTab === 'topo' && <TopoInfo />}
+        {activeTab === 'flows' && <FlowTable />}
+        {activeTab === 'ports' && <PortStats />}
+        {activeTab === 'policies' && <PolicyPanel />}
+        {activeTab === 'alerts' && <AlertsTab />}
       </div>
     </div>
   )

@@ -220,20 +220,13 @@ class PolicyGenerator:
         return policy, None
 
     def _gen_ping(self, intent, dpid, src_ip, dst_ip, intent_id):
-        """
-        修复：真正执行 Mininet ping 命令，而不是仅下发 ICMP 流规则。
-        命令格式：{src_host} ping -c 3 {dst_ip}
-        """
-        src = intent.source_node or ""
-        dst = dst_ip or intent.target_node or ""
-        count = intent.parameters.get("count", 3)
-        cmd = f"{src} ping -c {count} {dst}"
-
         policy = NetworkPolicy(
-            policy_type=PolicyType.MININET_CMD,
-            dpid=dpid or "0",
-            command=cmd,
-            description=f"执行 PING: {intent.source_node} → {intent.target_node} (×{count})",
+            policy_type=PolicyType.FLOW_RULE,
+            dpid=dpid,
+            priority=300,
+            match=FlowMatch(ipv4_src=src_ip, ipv4_dst=dst_ip, ip_proto=1), # ICMP
+            actions=[FlowAction(type="output", value="NORMAL")],
+            description=f"下发 ICMP 连通策略: {intent.source_node}↔{intent.target_node}",
             intent_id=intent_id,
         )
         return policy, None

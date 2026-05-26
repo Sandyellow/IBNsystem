@@ -1,15 +1,15 @@
-"""FastAPI 应用入口"""
+"""FastAPI 应用入口 — IBN System v2"""
 import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.network_manager import network_manager
-from core.vm_connector import vm_connector
+from core.ryu_client import ryu_client
+from core.topo_manager import topo_manager
 from api.websocket_manager import ws_manager
-from api.routes.network import topology_router, network_router, alerts_router, ws_router
+from api.routes.network import router as network_router
 from api.routes.intent import router as intent_router
 from api.routes.debug import router as debug_router
 
@@ -23,45 +23,64 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── 启动时注册 WebSocket 回调并启动轮询
-    network_manager.on_alert(ws_manager.broadcast_alert)
-    network_manager.on_topology_update(ws_manager.broadcast_topology)
-    await network_manager.start_polling()
-    logger.info("IBN 系统已启动，网络状态轮询中...")
+    # 启动：注册回调 → 启动拓扑轮询
+    topo_manager.on_topology_update(ws_manager.broadcast_topology)
+    await topo_manager.start_polling()
+    logger.info("IBN 系统 v2 已启动，直连 Ryu 轮询中...")
     yield
-    # ── 关闭时清理
-    await network_manager.stop_polling()
-    await vm_connector.close()
+    # 关闭：停止轮询 → 关闭 Ryu 连接
+    await topo_manager.stop_polling()
+    await ryu_client.close()
     logger.info("IBN 系统已关闭")
 
 
 app = FastAPI(
     title="IBN — Intent-Based Networking System",
-    version="1.0.0",
+    version="2.0.0",
+    description="基于 LLM 的网络意图驱动系统，直连 Ryu SDN 控制器",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(topology_router)
+# 路由注册
 app.include_router(network_router)
-app.include_router(alerts_router)
 app.include_router(intent_router)
-app.include_router(ws_router)
 app.include_router(debug_router)
+
+
+# WebSocket 端点
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws_manager.connect(ws)
+    try:
+        # 连接后立即推送当前状态
+        await ws_manager.broadcast_topology(topo_manager.topology)
+        while True:
+            try:
+                msg = await ws.receive_text()
+                # 心跳处理
+                if msg == "ping":
+                    await ws.send_text("pong")
+            except Exception:
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        ws_manager.disconnect(ws)
 
 
 @app.get("/api/health")
 async def health():
-    vm_ok = await vm_connector.ping()
+    ryu_ok = await ryu_client.ping()
     return {
         "status": "ok",
-        "vm_connected": vm_ok,
-        "network_status": network_manager.get_status(),
+        "ryu_connected": ryu_ok,
+        **topo_manager.get_status(),
     }

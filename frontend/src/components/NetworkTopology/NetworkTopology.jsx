@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, MarkerType,
@@ -6,6 +6,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import useStore from '../../store/useStore'
+import api from '../../services/api'
+import { Cpu, Server, Network } from 'lucide-react'
 
 // ─── 自定义节点 ──────────────────────────────────────
 function TopoNode({ data, selected }) {
@@ -27,7 +29,7 @@ function TopoNode({ data, selected }) {
       <Handle type="target" position={Position.Bottom} id="tb-center" style={{ left: '50%', width: 6, height: 6, opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} id="b-right"  style={{ left: '75%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
       <Handle type="target" position={Position.Bottom} id="tb-right" style={{ left: '75%', width: 6, height: 6, opacity: 0 }} />
-      <span className="topo-node-icon">{isSwitch ? '🔀' : '💻'}</span>
+      <span className="topo-node-icon">{isSwitch ? <Cpu size={20} color="#6366f1" /> : <Server size={20} color="#10b981" />}</span>
       <span className="topo-node-label">{data.label}</span>
       {data.ip && <span className="topo-node-ip">{data.ip}</span>}
     </div>
@@ -108,7 +110,7 @@ function toFlowNodes(nodes, links = []) {
 }
 
 
-function toFlowEdges(links, flowNodes = []) {
+function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
   const nodeMap = Object.fromEntries(flowNodes.map(n => [n.id, n]))
 
   return links.map(link => {
@@ -147,31 +149,36 @@ function toFlowEdges(links, flowNodes = []) {
       }
     }
 
+    const isActive = activePathEdges.includes(link.id)
+
     return {
       id: link.id,
       source: sId,
       target: tId,
       sourceHandle: sHandle,
       targetHandle: tHandle,
-    type: 'smoothstep', // 使用带圆角的折线，更适合网络拓扑
-    animated: link.state === 'up',
-    style: {
-      stroke: link.state === 'down'     ? '#ef4444'
-            : link.state === 'degraded' ? '#f59e0b'
-            : '#6366f1',
-      strokeWidth: 2,
-      strokeDasharray: link.state === 'down' ? '6,4' : undefined,
-    },
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#6366f1' },
-    label: link.utilization_pct != null
-      ? `${link.utilization_pct.toFixed(0)}%`
-      : undefined,
+      type: 'smoothstep',
+      animated: isActive || link.state === 'up',
+      className: isActive ? 'edge-active-path' : '',
+      style: {
+        stroke: isActive ? '#10b981' :
+                link.state === 'down'     ? '#ef4444' :
+                link.state === 'degraded' ? '#f59e0b' : '#6366f1',
+        strokeWidth: isActive ? 3 : 2,
+        strokeDasharray: link.state === 'down' ? '6,4' : undefined,
+        filter: isActive ? 'drop-shadow(0 0 5px rgba(16, 185, 129, 0.8))' : 'none',
+      },
+      markerEnd: { type: MarkerType.ArrowClosed, color: isActive ? '#10b981' : '#6366f1' },
+      label: link.utilization_pct != null ? `${link.utilization_pct.toFixed(0)}%` : undefined,
     }
   })
 }
 
 export default function NetworkTopology() {
   const topology = useStore(s => s.topology)
+  const selectedNode = useStore(s => s.selectedNode)
+  const setSelectedNode = useStore(s => s.setSelectedNode)
+  const activePathEdges = useStore(s => s.activePathEdges)
 
   // 用 useNodesState / useEdgesState + useEffect 保证正确同步
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -192,10 +199,36 @@ export default function NetworkTopology() {
         return n
       })
       
-      setEdges(toFlowEdges(links, mergedNodes))
+      setEdges(toFlowEdges(links, mergedNodes, activePathEdges))
       return mergedNodes
     })
-  }, [topology, setNodes, setEdges])
+  }, [topology, setNodes, setEdges, activePathEdges])
+
+  // 获取选中交换机的流表
+  const [nodeFlows, setNodeFlows] = useState(null)
+  const [loadingFlows, setLoadingFlows] = useState(false)
+
+  useEffect(() => {
+    if (selectedNode && selectedNode.type === 'switch' && selectedNode.dpid) {
+      setLoadingFlows(true)
+      setNodeFlows(null)
+      // 将 hex dpid 转为整数
+      const dpidInt = parseInt(selectedNode.dpid, 16) || parseInt(selectedNode.dpid)
+      api.get(`/flows/${dpidInt}`)
+        .then(res => {
+          setNodeFlows(res.data.flows || [])
+        })
+        .catch(err => {
+          console.error('Failed to fetch flows', err)
+          setNodeFlows([])
+        })
+        .finally(() => {
+          setLoadingFlows(false)
+        })
+    } else {
+      setNodeFlows(null)
+    }
+  }, [selectedNode])
 
   const isInitialLoading = useStore(s => s.isInitialLoading)
   const isEmpty = !topology?.nodes?.length
@@ -214,33 +247,125 @@ export default function NetworkTopology() {
     <div className="topology-canvas">
       {isEmpty ? (
         <div className="empty-topology">
-          <div className="empty-topology-icon">🌐</div>
+          <div className="empty-topology-icon"><Network size={48} /></div>
           <div className="empty-topology-text">暂无拓扑数据</div>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
             请确认 VM Agent 正在运行
           </div>
         </div>
       ) : (
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.25 }}
-          minZoom={0.2}
-          maxZoom={2.5}
-          attributionPosition="bottom-right"
-        >
-          <Background color="#e2e8f0" gap={20} size={1} />
-          <Controls showInteractive={false} />
-          <MiniMap
-            nodeColor={n => n.data?.type === 'switch' ? '#6366f1' : '#16a34a'}
-            maskColor="rgba(248,250,252,0.8)"
-            style={{ border: '1px solid #e2e8f0', borderRadius: 8 }}
-          />
-        </ReactFlow>
+        <>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeClick={(_, node) => setSelectedNode(node.data)}
+            onPaneClick={() => setSelectedNode(null)}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.25 }}
+            minZoom={0.2}
+            maxZoom={2.5}
+            attributionPosition="bottom-right"
+          >
+            <Background color="#e2e8f0" gap={20} size={1} />
+            <Controls showInteractive={false} />
+            <MiniMap
+              nodeColor={n => n.data?.type === 'switch' ? '#6366f1' : '#16a34a'}
+              maskColor="rgba(248,250,252,0.8)"
+              style={{ border: '1px solid #e2e8f0', borderRadius: 8 }}
+            />
+          </ReactFlow>
+
+          {/* 预期路径展示标签 */}
+          {activePathEdges && activePathEdges.length > 0 && (
+            <div className="path-preview-legend">
+              <span className="pp-indicator"></span>
+              控制器规划预期路径 (Expected Path)
+            </div>
+          )}
+
+          {/* 节点详情悬浮窗 */}
+          {selectedNode && (
+            <div className="node-detail-overlay">
+              <div className="node-detail-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {selectedNode.type === 'switch' ? <Cpu size={14} color="#6366f1" /> : <Server size={14} color="#10b981" />}
+                  {selectedNode.type === 'switch' ? '交换机详情' : '主机详情'}
+                </span>
+                <button className="btn-close" onClick={() => setSelectedNode(null)}>✕</button>
+              </div>
+              <div className="node-detail-body">
+                <div className="detail-row">
+                  <span className="detail-label">名称</span>
+                  <span className="detail-value">{selectedNode.label}</span>
+                </div>
+                {selectedNode.dpid && (
+                  <div className="detail-row">
+                    <span className="detail-label">DPID</span>
+                    <span className="detail-value">{selectedNode.dpid}</span>
+                  </div>
+                )}
+                {selectedNode.ip && (
+                  <div className="detail-row">
+                    <span className="detail-label">IP 地址</span>
+                    <span className="detail-value">{selectedNode.ip}</span>
+                  </div>
+                )}
+                {selectedNode.mac && (
+                  <div className="detail-row">
+                    <span className="detail-label">MAC 地址</span>
+                    <span className="detail-value">{selectedNode.mac}</span>
+                  </div>
+                )}
+                {selectedNode.port_count != null && (
+                  <div className="detail-row">
+                    <span className="detail-label">活跃端口数</span>
+                    <span className="detail-value">{selectedNode.port_count}</span>
+                  </div>
+                )}
+                {selectedNode.type === 'switch' && (
+                  <div className="mt-3">
+                    {loadingFlows ? (
+                      <div className="text-muted text-center" style={{ fontSize: '11px' }}>加载流表中...</div>
+                    ) : nodeFlows && nodeFlows.length > 0 ? (
+                      <div style={{ fontSize: 11 }}>
+                        <div style={{ color: 'var(--color-text-muted)', marginBottom: 4, fontWeight: 600 }}>流表摘要 ({nodeFlows.length} 条)</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {nodeFlows.slice(0, 5).map((f, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'monospace', background: 'var(--color-bg-sidebar)', padding: '2px 6px', borderRadius: 4 }}>
+                              <span style={{ color: '#6366f1', minWidth: 30 }}>p={f.priority}</span>
+                              <span style={{ color: 'var(--color-text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {Object.keys(f.match || {}).length === 0 ? 'ANY' : Object.entries(f.match).slice(0, 2).map(([k, v]) => {
+                                  if ((k === 'dl_type' || k === 'eth_type')) {
+                                    if (v == 35020) return 'LLDP'
+                                    if (v == 2054) return 'ARP'
+                                    if (v == 2048) return 'IPv4'
+                                  }
+                                  if ((k === 'dl_dst' || k === 'eth_dst') && v === '01:80:c2:00:00:0e') return 'LLDP组播'
+                                  return `${k.replace(/^(eth_|dl_|nw_|ipv4_|tcp_|udp_)/, '')}=${v}`
+                                }).join(', ')}
+                              </span>
+                              <span style={{ color: (f.actions?.length === 0 || (!f.actions && !f.instructions)) ? '#ef4444' : '#16a34a' }}>
+                                {f.actions?.length === 0 ? 'DROP' : 'FWD'}
+                              </span>
+                            </div>
+                          ))}
+                          {nodeFlows.length > 5 && (
+                            <div style={{ fontSize: 9, color: 'var(--color-text-muted)', textAlign: 'center' }}>...还有 {nodeFlows.length - 5} 条 (左侧流表面板查看全部)</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : nodeFlows !== null ? (
+                      <div style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>暂无自定义流表</div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
