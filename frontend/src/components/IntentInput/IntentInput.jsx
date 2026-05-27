@@ -7,23 +7,23 @@ import {
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
-  pending:   { cls: 'badge-pending',   label: '排队中',  icon: <Clock size={12} /> },
-  parsing:   { cls: 'badge-validating', label: '解析中', icon: <Search size={12} /> },
-  executing: { cls: 'badge-executing', label: '执行中',  icon: <Zap size={12} /> },
-  success:   { cls: 'badge-success',   label: '成功',    icon: <CheckCircle2 size={12} /> },
-  failed:    { cls: 'badge-failed',    label: '失败',    icon: <XCircle size={12} /> },
+  pending: { cls: 'badge-pending', label: '排队中', icon: <Clock size={12} /> },
+  parsing: { cls: 'badge-validating', label: '解析中', icon: <Search size={12} /> },
+  executing: { cls: 'badge-executing', label: '执行中', icon: <Zap size={12} /> },
+  success: { cls: 'badge-success', label: '成功', icon: <CheckCircle2 size={12} /> },
+  failed: { cls: 'badge-failed', label: '失败', icon: <XCircle size={12} /> },
 }
 
 const ACTION_ICONS = {
-  query_topology:   <Network size={14} />,
-  query_flows:      <ArrowRightLeft size={14} />,
+  query_topology: <Network size={14} />,
+  query_flows: <ArrowRightLeft size={14} />,
   query_port_stats: <Activity size={14} />,
-  block_traffic:    <ShieldAlert size={14} />,
-  allow_traffic:    <CheckSquare size={14} />,
-  rate_limit:       <Clock4 size={14} />,
-  set_priority:     <TrendingUp size={14} />,
+  block_traffic: <ShieldAlert size={14} />,
+  allow_traffic: <CheckSquare size={14} />,
+  rate_limit: <Clock4 size={14} />,
+  set_priority: <TrendingUp size={14} />,
   redirect_traffic: <CornerDownRight size={14} />,
-  clear_flows:      <Trash2 size={14} />,
+  clear_flows: <Trash2 size={14} />,
 }
 
 // 快捷操作模板
@@ -111,12 +111,12 @@ function ResultDisplay({ result, action }) {
   const color = controlColors[result.type] || '#48bb78'
 
   return (
-      <div className="bubble bubble-system">
-        <div className="result-header" style={{ color, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-          {ACTION_ICONS[result.type] || <CheckCircle2 size={14} />} {result.message}
-        </div>
-        
-        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--color-border)', fontSize: 12 }}>
+    <div className="bubble bubble-system">
+      <div className="result-header" style={{ color, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+        {ACTION_ICONS[result.type] || <CheckCircle2 size={14} />} {result.message}
+      </div>
+
+      <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--color-border)', fontSize: 12 }}>
         {result.installed_on && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
             <span style={{ color: 'var(--color-text-muted)', width: 60 }}>下发节点:</span>
@@ -135,12 +135,12 @@ function ResultDisplay({ result, action }) {
             <span style={{ color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>{result.src_mac} ↔ {result.dst_mac}</span>
           </div>
         )}
-        </div>
-        
-        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
-          ← 请在左侧「活跃策略」中查看规则详情
-        </div>
       </div>
+
+      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+        ← 请在左侧「活跃策略」中查看规则详情
+      </div>
+    </div>
   )
 }
 
@@ -319,7 +319,7 @@ export default function IntentInput() {
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="描述你的网络管理需求，例如：隔离 h1 和 h3 的通信"
+            placeholder="描述你的网络管理需求"
             rows={2}
             disabled={isProcessing}
           />

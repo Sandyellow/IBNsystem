@@ -192,38 +192,48 @@ export default function NetworkInfo() {
       {/* Tab 导航 */}
       <div style={{
         display: 'flex',
+        background: 'var(--color-bg-sidebar)',
+        padding: '12px 12px', /* reduced parent padding slightly to give tabs more room */
         borderBottom: '1px solid var(--color-border)',
-        background: 'var(--color-surface-2)',
-        padding: '0 4px',
       }}>
-        {TABS.map(tab => {
-          const Icon = tab.icon
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                flex: 1,
-                background: 'none',
-                border: 'none',
-                borderBottom: activeTab === tab.id ? '2px solid var(--color-primary)' : '2px solid transparent',
-                color: activeTab === tab.id ? 'var(--color-primary)' : 'var(--color-text-muted)',
-                padding: '8px 2px',
-                fontSize: 11,
-                fontWeight: activeTab === tab.id ? 700 : 400,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <Icon size={16} />
-              <span style={{ fontSize: 9 }}>{tab.label}</span>
-            </button>
-          )
-        })}
+        <div style={{
+          display: 'flex',
+          flex: 1,
+          background: 'var(--color-surface-2)',
+          borderRadius: '10px',
+          padding: '4px',
+          gap: '2px' /* reduced gap between tabs */
+        }}>
+          {TABS.map(tab => {
+            const Icon = tab.icon
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  flex: 1,
+                  background: isActive ? '#ffffff' : 'transparent',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                  padding: '6px 0', /* 0 horizontal padding to maximize space */
+                  fontWeight: isActive ? 600 : 500,
+                  cursor: 'pointer',
+                  transition: 'var(--transition)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
+                  boxShadow: isActive ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+                }}
+              >
+                <Icon size={16} />
+                <span style={{ fontSize: 10, whiteSpace: 'nowrap', transform: 'scale(0.95)' }}>{tab.label}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Tab 内容 */}

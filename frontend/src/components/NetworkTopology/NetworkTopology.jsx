@@ -12,25 +12,26 @@ import { Cpu, Server, Network } from 'lucide-react'
 // ─── 自定义节点 ──────────────────────────────────────
 function TopoNode({ data, selected }) {
   const isSwitch = data.type === 'switch'
+  const handleColor = isSwitch ? '#2563eb' : '#10b981'
 
   return (
     <div className={`topo-node ${isSwitch ? 'node-switch' : 'node-host'} ${selected ? 'selected' : ''}`}>
       {/* 顶部端口 (Target + Source 叠加) */}
-      <Handle type="target" position={Position.Top} id="t-left"   style={{ left: '25%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
+      <Handle type="target" position={Position.Top} id="t-left"   style={{ left: '25%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="source" position={Position.Top} id="st-left"  style={{ left: '25%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="target" position={Position.Top} id="t-center" style={{ left: '50%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
+      <Handle type="target" position={Position.Top} id="t-center" style={{ left: '50%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="source" position={Position.Top} id="st-center" style={{ left: '50%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="target" position={Position.Top} id="t-right"  style={{ left: '75%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
+      <Handle type="target" position={Position.Top} id="t-right"  style={{ left: '75%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="source" position={Position.Top} id="st-right" style={{ left: '75%', width: 6, height: 6, opacity: 0 }} />
 
       {/* 底部端口 (Source + Target 叠加) */}
-      <Handle type="source" position={Position.Bottom} id="b-left"   style={{ left: '25%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
+      <Handle type="source" position={Position.Bottom} id="b-left"   style={{ left: '25%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="target" position={Position.Bottom} id="tb-left"  style={{ left: '25%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} id="b-center" style={{ left: '50%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
+      <Handle type="source" position={Position.Bottom} id="b-center" style={{ left: '50%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="target" position={Position.Bottom} id="tb-center" style={{ left: '50%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} id="b-right"  style={{ left: '75%', width: 6, height: 6, background: '#6366f1', border: '1px solid #fff' }} />
+      <Handle type="source" position={Position.Bottom} id="b-right"  style={{ left: '75%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="target" position={Position.Bottom} id="tb-right" style={{ left: '75%', width: 6, height: 6, opacity: 0 }} />
-      <span className="topo-node-icon">{isSwitch ? <Cpu size={20} color="#6366f1" /> : <Server size={20} color="#10b981" />}</span>
+      <span className="topo-node-icon">{isSwitch ? <Cpu size={20} color="#2563eb" /> : <Server size={20} color="#10b981" />}</span>
       <span className="topo-node-label">{data.label}</span>
       {data.ip && <span className="topo-node-ip">{data.ip}</span>}
     </div>
@@ -162,10 +163,10 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
       animated: isActive,
       className: isActive ? 'edge-active-path' : '',
       style: {
-        stroke: isActive ? '#10b981' : '#6366f1',
-        strokeWidth: isActive ? 3 : 2,
-        strokeDasharray: '5,5', // 所有连线统一使用虚线
-        filter: isActive ? 'drop-shadow(0 0 5px rgba(16, 185, 129, 0.8))' : 'none',
+        stroke: '#b45309', // 不管激活与否，统一使用古铜橙色
+        strokeWidth: isActive ? 2.5 : 1.5,
+        strokeDasharray: '5,5', // 统一使用虚线连线
+        filter: isActive ? 'drop-shadow(0 0 5px rgba(180, 83, 9, 0.5))' : 'none', // 激活时辅以橙色微光阴影
       },
       label: link.utilization_pct != null ? `${link.utilization_pct.toFixed(0)}%` : undefined,
     }
@@ -276,7 +277,7 @@ export default function NetworkTopology() {
             maxZoom={2.5}
             attributionPosition="bottom-right"
           >
-            <Background color="#e2e8f0" gap={20} size={1} />
+            <Background color="#e2e8f0" gap={60} size={1} variant="lines" />
             <Controls showInteractive={false} />
             <MiniMap
               nodeColor={n => n.data?.type === 'switch' ? '#6366f1' : '#16a34a'}
