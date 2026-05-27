@@ -166,8 +166,9 @@ export default function PortStats() {
                       />
                       <RechartsTooltip 
                         isAnimationActive={false} 
+                        position={{ y: -10 }}
                         content={<CustomChartTooltip />} 
-                        cursor={{ stroke: 'var(--color-border)', strokeWidth: 1, strokeDasharray: '4 4' }} 
+                        cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1, strokeDasharray: '3 3' }} 
                       />
                       <Legend 
                         wrapperStyle={{ paddingTop: 10, fontSize: 11, cursor: 'pointer' }}
@@ -182,8 +183,8 @@ export default function PortStats() {
                          const color = PORT_COLORS[idx % PORT_COLORS.length]
                          const isHidden = hiddenPorts[p.port_no]
                          return [
-                           <Line key={`rx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_rx`} name={`端口 ${p.port_no} RX`} stroke={color} strokeWidth={2} dot={false} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />,
-                           <Line key={`tx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_tx`} name={`端口 ${p.port_no} TX`} stroke={color} strokeDasharray="4 4" strokeWidth={2} dot={false} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />
+                           <Line key={`rx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_rx`} name={`端口 ${p.port_no} RX`} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />,
+                           <Line key={`tx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_tx`} name={`端口 ${p.port_no} TX`} stroke={color} strokeDasharray="4 4" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />
                          ]
                       })}
                     </LineChart>
@@ -217,7 +218,7 @@ const CustomChartTooltip = ({ active, payload, label }) => {
     })
 
     return (
-      <div style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 8px', fontSize: 11, boxShadow: 'var(--shadow-md)', zIndex: 100 }}>
+      <div style={{ pointerEvents: 'none', background: 'rgba(255,255,255,0.95)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 8px', fontSize: 11, boxShadow: 'var(--shadow-md)', zIndex: 100 }}>
         <div style={{ color: 'var(--color-text-muted)', marginBottom: 6 }}>{label}</div>
         {Object.entries(ports).map(([pNo, data]) => (
           <div key={pNo} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
