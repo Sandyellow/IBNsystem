@@ -1,24 +1,58 @@
 {
-  "meter_counter": 210,
+  "meter_counter": 214,
   "policies": {
-    "9b4581e6-e585-45bb-8799-0a6dd85b066c": {
-      "id": "9b4581e6-e585-45bb-8799-0a6dd85b066c",
+    "test-intent-2": {
+      "id": "test-intent-2",
       "policy_type": "rate_limit",
-      "src_host": "h2",
-      "dst_host": "h4",
+      "src_host": "h1",
+      "dst_host": "h2",
       "target_switch": null,
       "intent_action": "rate_limit",
       "parameters": {
-        "bandwidth_mbps": 2
+        "bandwidth_mbps": 10
       },
-      "description": "限速 h2→h4 ≤2.0Mbps",
+      "description": "限速 h1→h2 ≤10.0Mbps",
       "ryu_cookies": [
-        128001449599807213
+        612921936288128524
       ],
       "meter_ids": [
-        210
+        214
       ],
-      "created_at": 1779846748.917213
+      "created_at": 1779875964.1632574
+    },
+    "test-intent-3": {
+      "id": "test-intent-3",
+      "policy_type": "priority",
+      "src_host": "h1",
+      "dst_host": "h2",
+      "target_switch": null,
+      "intent_action": "set_priority",
+      "parameters": {
+        "priority": 300
+      },
+      "description": "优先级 300: h1→h2",
+      "ryu_cookies": [
+        726379835457596063
+      ],
+      "meter_ids": [],
+      "created_at": 1779875964.164775
+    },
+    "test-intent-4": {
+      "id": "test-intent-4",
+      "policy_type": "redirect",
+      "src_host": "h1",
+      "dst_host": "h2",
+      "target_switch": null,
+      "intent_action": "redirect_traffic",
+      "parameters": {
+        "via_switch": "s3"
+      },
+      "description": "重定向 h1→h2 经由 s3",
+      "ryu_cookies": [
+        813591631969635088
+      ],
+      "meter_ids": [],
+      "created_at": 1779875964.1652806
     }
   }
 }

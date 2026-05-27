@@ -4,6 +4,8 @@ from pydantic import BaseModel
 from enum import Enum
 import time
 
+from models.intent import IntentAction
+
 
 class PolicyType(str, Enum):
     BLOCK      = "block"
@@ -19,7 +21,7 @@ class ActivePolicy(BaseModel):
     src_host: Optional[str] = None
     dst_host: Optional[str] = None
     target_switch: Optional[str] = None # 用于 clear_flows 等指定交换机的场景
-    intent_action: str = ""           # 原始的 IntentAction 类型（用于重建流表分发）
+    intent_action: Optional[IntentAction] = None  # 原始的 IntentAction 类型（用于重建流表分发）
     parameters: Dict[str, Any] = {}   # 保存原始完整参数（带宽、优先级、via_switch 等）
     description: str = ""
     ryu_cookies: List[int] = []       # 关联的 Ryu flow cookie，用于精准删除

@@ -113,4 +113,5 @@ logs/
 # Dynamic simulation dumps & state files
 backend/topo_dump.json
 backend/data/policies.json
+backend/*.json
 

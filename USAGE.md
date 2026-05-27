@@ -81,13 +81,13 @@ notepad frontend\.env
 
 **终端 1 — 启动后端：**
 ```powershell
-cd f:\DevelopmentProjects\AskAnything\backend
+cd .\backend
 ..\.venv\Scripts\uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **终端 2 — 启动前端：**
 ```powershell
-cd f:\DevelopmentProjects\AskAnything\frontend
+cd .\DevelopmentProjects\AskAnything\frontend
 npm run dev
 ```
 
@@ -99,7 +99,7 @@ npm run dev
 
 **将脚本文件传到 VM（首次，注意替换 IP）：**
 ```powershell
-scp -r f:\DevelopmentProjects\AskAnything\vm-agent\* sdn@<VM_IP_ADDRESS>:~/Desktop/vm-agent/
+scp -r .\vm-agent\* sdn@<VM_IP_ADDRESS>:~/Desktop/vm-agent/
 ```
 
 **一键启动（在 VM 终端执行）：**

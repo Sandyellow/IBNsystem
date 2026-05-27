@@ -3,15 +3,11 @@
 核心设计：无中间抽象层，意图→Ryu API 一步到位，返回真实执行结果
 """
 from __future__ import annotations
-import asyncio
 import hashlib
 import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-import httpx
-
-from config import settings
 from core.ryu_client import ryu_client
 from core.topo_manager import topo_manager, _is_placeholder_mac
 from models.intent import ParsedIntent, IntentAction
@@ -53,6 +49,9 @@ class PolicyExecutor:
                 IntentAction.SET_PRIORITY:     self._set_priority,
                 IntentAction.REDIRECT_TRAFFIC: self._redirect_traffic,
                 IntentAction.CLEAR_FLOWS:      self._clear_flows,
+                IntentAction.ADD_FLOW:         self._unimplemented,
+                IntentAction.DELETE_FLOW:      self._unimplemented,
+                IntentAction.LOAD_BALANCE:     self._unimplemented,
             }
             handler = handlers.get(action)
             if handler is None:
@@ -61,6 +60,9 @@ class PolicyExecutor:
         except Exception as e:
             logger.error(f"[PolicyExecutor] {action}: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+
+    async def _unimplemented(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        return {"success": False, "error": f"功能尚未实现: {intent.action.value}"}
 
     # ── 查询操作 ──────────────────────────────────────────
 
@@ -126,10 +128,10 @@ class PolicyExecutor:
     # ── 控制操作 ──────────────────────────────────────────
 
     async def _block_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        src_info = topo_manager.get_host(intent.src_host)
-        dst_info = topo_manager.get_host(intent.dst_host)
+        src_info = topo_manager.get_host(intent.source_node)
+        dst_info = topo_manager.get_host(intent.target_node)
         if not src_info or not dst_info:
-            return {"success": False, "error": f"主机不存在: {intent.src_host} 或 {intent.dst_host}"}
+            return {"success": False, "error": f"主机不存在: {intent.source_node} 或 {intent.target_node}"}
 
         src_mac = src_info["mac"]
         dst_mac = dst_info["mac"]
@@ -141,8 +143,8 @@ class PolicyExecutor:
                 "触发主机重新发现..."
             )
             await topo_manager.fetch_host_config()
-            src_info = topo_manager.get_host(intent.src_host)
-            dst_info = topo_manager.get_host(intent.dst_host)
+            src_info = topo_manager.get_host(intent.source_node)
+            dst_info = topo_manager.get_host(intent.target_node)
             if not src_info or not dst_info:
                 return {"success": False, "error": "重新发现后主机信息仍不存在"}
             src_mac = src_info["mac"]
@@ -151,7 +153,7 @@ class PolicyExecutor:
                 return {
                     "success": False,
                     "error": (
-                        f"无法获取 {intent.src_host}/{intent.dst_host} 的真实 MAC。"
+                        f"无法获取 {intent.source_node}/{intent.target_node} 的真实 MAC。"
                         "请确认 Mininet 网络已启动，Ryu 控制器已学习到主机信息（可先执行 ping 测试触发学习）"
                     ),
                 }
@@ -187,11 +189,11 @@ class PolicyExecutor:
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
             policy_type=PolicyType.BLOCK,
-            src_host=intent.src_host,
-            dst_host=intent.dst_host,
+            src_host=intent.source_node,
+            dst_host=intent.target_node,
             intent_action=intent.action,
             parameters=intent.parameters,
-            description=f"隔离 {intent.src_host} ↔ {intent.dst_host}",
+            description=f"隔离 {intent.source_node} ↔ {intent.target_node}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
@@ -206,18 +208,18 @@ class PolicyExecutor:
             "cookie": cookie,
             "message": (
                 f"已在 {', '.join(installed)} 上安装双向隔离规则（优先级500），"
-                f"阻断 {intent.src_host}({src_mac}) ↔ {intent.dst_host}({dst_mac}) 的全部通信"
+                f"阻断 {intent.source_node}({src_mac}) ↔ {intent.target_node}({dst_mac}) 的全部通信"
             ),
         }
 
     async def _allow_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        src_info = topo_manager.get_host(intent.src_host)
-        dst_info = topo_manager.get_host(intent.dst_host)
+        src_info = topo_manager.get_host(intent.source_node)
+        dst_info = topo_manager.get_host(intent.target_node)
         if not src_info or not dst_info:
-            return {"success": False, "error": f"主机不存在: {intent.src_host} 或 {intent.dst_host}"}
+            return {"success": False, "error": f"主机不存在: {intent.source_node} 或 {intent.target_node}"}
 
         # 找到所有匹配的 block 策略
-        target_pair = {intent.src_host, intent.dst_host}
+        target_pair = {intent.source_node, intent.target_node}
         removed_cookies: List[int] = []
         removed_desc: List[str] = []
 
@@ -234,7 +236,7 @@ class PolicyExecutor:
             return {
                 "success": True,
                 "type": "allow_traffic",
-                "message": f"未找到 {intent.src_host}↔{intent.dst_host} 的隔离策略，无需操作",
+                "message": f"未找到 {intent.source_node}↔{intent.target_node} 的隔离策略，无需操作",
             }
 
         dpids = topo_manager.get_all_switch_dpids()
@@ -247,16 +249,16 @@ class PolicyExecutor:
             "type": "allow_traffic",
             "removed_policies": removed_desc,
             "message": (
-                f"已恢复 {intent.src_host}↔{intent.dst_host} 的通信，"
+                f"已恢复 {intent.source_node}↔{intent.target_node} 的通信，"
                 f"删除了 {len(removed_cookies)} 组隔离规则"
             ),
         }
 
     async def _rate_limit(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        src_info = topo_manager.get_host(intent.src_host)
-        dst_info = topo_manager.get_host(intent.dst_host)
+        src_info = topo_manager.get_host(intent.source_node)
+        dst_info = topo_manager.get_host(intent.target_node)
         if not src_info or not dst_info:
-            return {"success": False, "error": f"主机不存在: {intent.src_host} 或 {intent.dst_host}"}
+            return {"success": False, "error": f"主机不存在: {intent.source_node} 或 {intent.target_node}"}
 
         src_mac = src_info["mac"]
         dst_mac = dst_info["mac"]
@@ -268,8 +270,8 @@ class PolicyExecutor:
                 "触发主机重新发现..."
             )
             await topo_manager.fetch_host_config()
-            src_info = topo_manager.get_host(intent.src_host)
-            dst_info = topo_manager.get_host(intent.dst_host)
+            src_info = topo_manager.get_host(intent.source_node)
+            dst_info = topo_manager.get_host(intent.target_node)
             if not src_info or not dst_info:
                 return {"success": False, "error": "重新发现后主机信息仍不存在"}
             src_mac = src_info["mac"]
@@ -278,7 +280,7 @@ class PolicyExecutor:
                 return {
                     "success": False,
                     "error": (
-                        f"无法获取 {intent.src_host}/{intent.dst_host} 的真实 MAC。"
+                        f"无法获取 {intent.source_node}/{intent.target_node} 的真实 MAC。"
                         "请确认 Mininet 网络已启动，Ryu 控制器已学习到主机信息（可先执行 ping 测试触发学习）"
                     ),
                 }
@@ -335,11 +337,11 @@ class PolicyExecutor:
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
             policy_type=PolicyType.RATE_LIMIT,
-            src_host=intent.src_host,
-            dst_host=intent.dst_host,
+            src_host=intent.source_node,
+            dst_host=intent.target_node,
             intent_action=intent.action,
             parameters=intent.parameters,
-            description=f"限速 {intent.src_host}→{intent.dst_host} ≤{bw_mbps}Mbps",
+            description=f"限速 {intent.source_node}→{intent.target_node} ≤{bw_mbps}Mbps",
             ryu_cookies=[cookie],
             meter_ids=[meter_id],
             created_at=time.time(),
@@ -364,10 +366,10 @@ class PolicyExecutor:
         }
 
     async def _set_priority(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        src_info = topo_manager.get_host(intent.src_host)
-        dst_info = topo_manager.get_host(intent.dst_host)
+        src_info = topo_manager.get_host(intent.source_node)
+        dst_info = topo_manager.get_host(intent.target_node)
         if not src_info or not dst_info:
-            return {"success": False, "error": f"主机不存在: {intent.src_host} 或 {intent.dst_host}"}
+            return {"success": False, "error": f"主机不存在: {intent.source_node} 或 {intent.target_node}"}
 
         priority = int(intent.parameters.get("priority", 200))
         src_mac = src_info["mac"]
@@ -401,11 +403,11 @@ class PolicyExecutor:
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
             policy_type=PolicyType.PRIORITY,
-            src_host=intent.src_host,
-            dst_host=intent.dst_host,
+            src_host=intent.source_node,
+            dst_host=intent.target_node,
             intent_action=intent.action,
             parameters=intent.parameters,
-            description=f"优先级 {priority}: {intent.src_host}→{intent.dst_host}",
+            description=f"优先级 {priority}: {intent.source_node}→{intent.target_node}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
@@ -416,14 +418,14 @@ class PolicyExecutor:
             "type": "set_priority",
             "priority": priority,
             "installed_on": installed,
-            "message": f"已为 {intent.src_host}→{intent.dst_host} 在 {', '.join(installed)} 上设置优先级 {priority} 的转发规则",
+            "message": f"已为 {intent.source_node}→{intent.target_node} 在 {', '.join(installed)} 上设置优先级 {priority} 的转发规则",
         }
 
     async def _redirect_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        src_info = topo_manager.get_host(intent.src_host)
-        dst_info = topo_manager.get_host(intent.dst_host)
+        src_info = topo_manager.get_host(intent.source_node)
+        dst_info = topo_manager.get_host(intent.target_node)
         if not src_info or not dst_info:
-            return {"success": False, "error": f"主机不存在: {intent.src_host} 或 {intent.dst_host}"}
+            return {"success": False, "error": f"主机不存在: {intent.source_node} 或 {intent.target_node}"}
 
         via_sw = intent.parameters.get("via_switch")
         src_mac = src_info["mac"]
@@ -459,11 +461,11 @@ class PolicyExecutor:
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
             policy_type=PolicyType.REDIRECT,
-            src_host=intent.src_host,
-            dst_host=intent.dst_host,
+            src_host=intent.source_node,
+            dst_host=intent.target_node,
             intent_action=intent.action,
             parameters=intent.parameters,
-            description=f"重定向 {intent.src_host}→{intent.dst_host} 经由 {via_sw or '默认路径'}",
+            description=f"重定向 {intent.source_node}→{intent.target_node} 经由 {via_sw or '默认路径'}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
@@ -477,7 +479,7 @@ class PolicyExecutor:
             "out_port": out_port,
             "message": (
                 f"已在 {src_sw_name}(dpid={dpid}) 安装重定向规则，"
-                f"{intent.src_host}→{intent.dst_host} 的流量经由端口 {out_port}"
+                f"{intent.source_node}→{intent.target_node} 的流量经由端口 {out_port}"
                 f"{' (→' + via_sw + ')' if via_sw else ''}"
             ),
         }

@@ -5,9 +5,6 @@ class Settings(BaseSettings):
     # Ryu REST API（直连，绕过 VM Agent）
     RYU_REST_URL: str = "http://127.0.0.1:8080"
 
-    # VM Agent（仅用于 ping 测试和主机静态配置）
-    VM_AGENT_URL: str = "http://127.0.0.1:5000"
-
     # LLM（OpenAI 兼容格式）
     LLM_BASE_URL: str = "https://api.siliconflow.cn/v1"
     LLM_API_KEY: str = ""
@@ -17,7 +14,7 @@ class Settings(BaseSettings):
     POLL_INTERVAL: int = 5       # 轮询网络状态间隔(秒)
     MAX_LLM_RETRY: int = 3       # LLM 输出校验最大重试次数
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

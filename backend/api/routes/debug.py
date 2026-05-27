@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from core.ryu_client import ryu_client
 from core.topo_manager import topo_manager
-from core.intent_engine import intent_engine
+from core.workflow import parse_intent_dry_run
 from core.policy_executor import policy_executor
 from api.websocket_manager import ws_manager
 
@@ -57,14 +57,12 @@ async def debug_dry_run(req: DryRunRequest):
     """意图干运行（只解析，不执行）"""
     t0 = time.perf_counter()
     topo_ctx = topo_manager.get_llm_context()
-    intent, error, retries = await intent_engine.parse_with_retry(
-        req.text, topo_context=topo_ctx
-    )
+    intent, error = await parse_intent_dry_run(req.text)
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
     return {
         "input": req.text,
         "elapsed_ms": elapsed_ms,
-        "retries": retries,
+        "retries": 0,
         "ok": intent is not None,
         "error": error or None,
         "parsed_intent": intent.model_dump() if intent else None,

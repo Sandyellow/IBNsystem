@@ -10,8 +10,6 @@ import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-import httpx
-
 from config import settings
 from core.ryu_client import ryu_client
 
@@ -86,39 +84,21 @@ class TopoManager:
         self._ryu_connected: bool = False
         self._poll_task: Optional[asyncio.Task] = None
         self._callbacks: List[Callable] = []
-        self._agent_client: Optional[httpx.AsyncClient] = None
-
-    # ── VM Agent 客户端 ────────────────────────────────────
-    def _agent(self) -> httpx.AsyncClient:
-        if self._agent_client is None or self._agent_client.is_closed:
-            self._agent_client = httpx.AsyncClient(
-                base_url=settings.VM_AGENT_URL,
-                timeout=httpx.Timeout(8.0, connect=3.0),
-            )
-        return self._agent_client
 
     # ── 主机配置 ───────────────────────────────────────────────────
     async def fetch_host_config(self):
-        """从 VM Agent /hosts 动态获取真实主机配置（Ryu PacketIn 学习结果）。
-        若获取失败或返回空列表，保持当前 _hosts 不变，而非回退到假 MAC。"""
+        """直接从 Ryu 控制器动态获取真实主机配置。
+        若获取失败或返回空列表，保持当前 _hosts 不变。"""
         try:
-            r = await self._agent().get("/hosts")
-            r.raise_for_status()
-            data = r.json()
-            hosts = data.get("hosts", [])
-            discovered = data.get("discovered", False)
-            if hosts and discovered:
-                self._hosts = hosts
-                logger.info(
-                    f"[TopoManager] 动态主机已发现: "
-                    f"{[(h['id'], h['mac']) for h in hosts]}"
-                )
-            elif not discovered:
-                logger.warning(
-                    "[TopoManager] VM Agent 返回 discovered=False，"
-                    f"warning: {data.get('warning', '')}。"
-                    f"当前 _hosts 共 {len(self._hosts)} 条，保持不变。"
-                )
+            ryu_hosts_raw = await ryu_client.get_topology_hosts()
+            if ryu_hosts_raw:
+                dynamic_hosts = _build_dynamic_hosts(ryu_hosts_raw)
+                if dynamic_hosts:
+                    self._hosts = dynamic_hosts
+                    logger.info(
+                        f"[TopoManager] 动态主机已发现: "
+                        f"{[(h['id'], h['mac']) for h in dynamic_hosts]}"
+                    )
         except Exception as e:
             logger.warning(f"[TopoManager] 无法获取动态主机配置: {e}。当前 _hosts 保持不变。")
 
@@ -325,8 +305,6 @@ class TopoManager:
                 await self._poll_task
             except asyncio.CancelledError:
                 pass
-        if self._agent_client and not self._agent_client.is_closed:
-            await self._agent_client.aclose()
 
     async def _poll_loop(self):
         while True:

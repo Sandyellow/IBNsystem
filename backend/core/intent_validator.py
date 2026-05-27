@@ -4,13 +4,15 @@
 """
 from __future__ import annotations
 import logging
-from typing import Dict, List
+from typing import Dict, Any, List, Union
 
 from models.intent import (
     ParsedIntent, IntentAction, IntentValidationReport,
     ValidationResult, ValidationLayer,
 )
-from models.network import Topology
+from models.network import Topology as TopologyModel
+
+Topology = Union[Dict[str, Any], TopologyModel]
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +71,11 @@ class IntentValidator:
         return report
 
     def _validate_topology_verification(self, intent: ParsedIntent, topology: Topology) -> ValidationResult:
-        known_nodes = {n.id for n in topology.nodes}
+        """层级 1: 拓扑节点校验 - 检查节点是否存在"""
+        nodes_list = topology.get("nodes", []) if isinstance(topology, dict) else getattr(topology, "nodes", [])
+        
+        known_nodes = {n.get("id") if isinstance(n, dict) else getattr(n, "id", None) for n in nodes_list}
+        known_nodes.discard(None)
         if not known_nodes:
             # 拓扑未加载，跳过此层（不阻断流程）
             return ValidationResult(

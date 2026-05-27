@@ -16,6 +16,9 @@ class IntentAction(str, Enum):
     SET_PRIORITY     = "set_priority"
     REDIRECT_TRAFFIC = "redirect_traffic"
     CLEAR_FLOWS      = "clear_flows"
+    ADD_FLOW         = "add_flow"
+    DELETE_FLOW      = "delete_flow"
+    LOAD_BALANCE     = "load_balance"
 
 
 class IntentStatus(str, Enum):
@@ -26,14 +29,16 @@ class IntentStatus(str, Enum):
     FAILED    = "failed"
 
 
+from pydantic import BaseModel, Field
+
 class ParsedIntent(BaseModel):
     """LLM 解析后的结构化意图"""
-    action: IntentAction
-    src_host: Optional[str] = None        # 源主机名，如 "h1"
-    dst_host: Optional[str] = None        # 目标主机名，如 "h3"
-    target_switch: Optional[str] = None   # 目标交换机，如 "s1"
-    parameters: Dict[str, Any] = {}
-    explanation: str = ""
+    action: IntentAction = Field(description="需要执行的网络操作指令")
+    source_node: Optional[str] = Field(None, description="源节点名称，如 'h1'。如果没有指定，则为 None")
+    target_node: Optional[str] = Field(None, description="目标节点名称，如 'h3'。如果没有指定，则为 None")
+    target_switch: Optional[str] = Field(None, description="目标交换机，如 's1'。如果没有指定，则为 None")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="执行该操作所需的额外参数字典，例如 {'bandwidth_mbps': 5, 'via_node': 's2', 'priority': 100}")
+    explanation: str = Field("", description="一句话中文解释你对用户意图的理解")
 
 
 class IntentRequest(BaseModel):
@@ -53,3 +58,20 @@ class IntentRecord(BaseModel):
     error_message: Optional[str] = None
     created_at: float = 0.0
     updated_at: float = 0.0
+
+class ValidationLayer(str, Enum):
+    TOPOLOGY_VERIFICATION = "topology_verification"
+    SECURITY_POLICY = "security_policy"
+    CONFLICT_DETECTION = "conflict_detection"
+
+class ValidationResult(BaseModel):
+    layer: ValidationLayer
+    passed: bool
+    message: str
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+class IntentValidationReport(BaseModel):
+    overall_passed: bool
+    layers: List[ValidationResult]
+    requires_confirmation: bool = False
+    risk_level: str = "low"

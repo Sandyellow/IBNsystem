@@ -7,8 +7,8 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
-from models.intent import IntentRequest, IntentRecord, IntentStatus
-from core.intent_engine import intent_engine
+from models.intent import IntentRequest, IntentRecord, IntentStatus, IntentAction
+from core.workflow import process_intent as graph_process_intent
 from core.policy_executor import policy_executor
 from core.topo_manager import topo_manager
 from api.websocket_manager import ws_manager
@@ -27,32 +27,22 @@ def _now() -> float:
 async def _process(record: IntentRecord):
     """意图处理流水线（后台异步执行）"""
     try:
-        # ── Step 1: LLM 解析 ───────────────────────────────
-        record.status = IntentStatus.PARSING
+        # ── LangGraph 工作流（解析+验证+执行） ────────────────
+        record.status = IntentStatus.PARSING # 因为图里包含了这些阶段，我们可以统称为 PARSING 或 EXECUTING
         record.updated_at = _now()
         await ws_manager.broadcast_intent_update(record.model_dump())
 
-        topo_ctx = topo_manager.get_llm_context()
-        intent, error, retries = await intent_engine.parse_with_retry(
-            record.user_text, topo_context=topo_ctx
-        )
-        record.llm_retries = retries
-
-        if intent is None:
-            record.status = IntentStatus.FAILED
-            record.error_message = f"意图解析失败（重试 {retries} 次）: {error}"
-            record.updated_at = _now()
-            await ws_manager.broadcast_intent_update(record.model_dump())
-            return
-
-        record.parsed_intent = intent
-
-        # ── Step 2: 执行 ───────────────────────────────────
+        # 调用工作流主入口
+        result = await graph_process_intent(record.user_text, record.id)
+        
+        # 提取图生成的 ParsedIntent 对象
+        parsed_intent = result.pop("parsed_intent_obj", None)
+        if parsed_intent:
+            record.parsed_intent = parsed_intent
+            
         record.status = IntentStatus.EXECUTING
         record.updated_at = _now()
         await ws_manager.broadcast_intent_update(record.model_dump())
-
-        result = await policy_executor.execute(intent, record.id)
 
         if result.get("success"):
             record.status = IntentStatus.SUCCESS
@@ -65,9 +55,18 @@ async def _process(record: IntentRecord):
         record.updated_at = _now()
         await ws_manager.broadcast_intent_update(record.model_dump())
 
-        # ── Step 3: 控制操作后刷新拓扑和策略 ──────────────
-        query_actions = {"query_topology", "query_flows", "query_port_stats"}
-        if intent.action.value not in query_actions and result.get("success"):
+        # ── 控制操作后刷新拓扑和策略 ──────────────
+        query_actions = {
+            IntentAction.QUERY_TOPOLOGY.value,
+            IntentAction.QUERY_FLOWS.value,
+            IntentAction.QUERY_PORT_STATS.value
+        }
+        # 这里需要从 parsed_intent 中获取 action，因为有可能是查拓扑
+        is_query = False
+        if parsed_intent and parsed_intent.action.value in query_actions:
+            is_query = True
+            
+        if not is_query and result.get("success"):
             await topo_manager.refresh()
             # 推送策略更新
             await ws_manager.broadcast({
