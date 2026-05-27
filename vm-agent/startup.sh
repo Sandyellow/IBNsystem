@@ -5,6 +5,21 @@
 # ============================================================
 
 set -e
+
+# 解析命令行参数
+TOPO_CONFIG=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -c|--config)
+            TOPO_CONFIG="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
@@ -112,5 +127,10 @@ echo ""
 
 # ── 步骤 3: 启动 Mininet (前台 CLI 模式) ───────────────
 log "启动 Mininet 拓扑 (前台 CLI 模式)..."
-sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topology.py" --cli
+EXTRA_ARGS=""
+if [ -n "$TOPO_CONFIG" ]; then
+    EXTRA_ARGS="--config $TOPO_CONFIG"
+fi
+sudo "$MININET_PYTHON" "$SCRIPT_DIR/mininet_topology.py" --cli $EXTRA_ARGS
+
 

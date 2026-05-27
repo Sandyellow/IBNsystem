@@ -6,6 +6,8 @@ import time
 import signal
 import sys
 import subprocess
+import json
+import os
 from mininet.net import Mininet
 from mininet.node import RemoteController, OVSKernelSwitch
 from mininet.topo import Topo
@@ -15,9 +17,37 @@ from mininet.link import TCLink
 net = None  # 全局引用，供信号处理使用
 
 
+def load_topology_config(config_path=None):
+    """从配置文件加载拓扑，优先选用指定路径，其次尝试 topology.json"""
+    if not config_path:
+        import sys
+        for i, arg in enumerate(sys.argv):
+            if arg in ("--config", "-c") and i + 1 < len(sys.argv):
+                config_path = sys.argv[i + 1]
+                break
+    
+    if not config_path:
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "topology.json")
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                info(f"[IBN] 成功加载拓扑配置文件: {config_path}\n")
+                return json.load(f)
+        except Exception as e:
+            info(f"[IBN] 读取拓扑配置文件失败 ({config_path}): {e}，将采用默认配置。\n")
+    return None
+
+
 class IBNTopo(Topo):
-    """树形拓扑: s1 为核心，s2/s3 为边缘，h1-h4 为主机"""
-    def build(self):
+    """树形拓扑: 支持从配置文件加载，或者 fallback 采用默认树形拓扑"""
+    def build(self, config=None):
+        if config:
+            self._build_from_config(config)
+        else:
+            self._build_default()
+
+    def _build_default(self):
         s1 = self.addSwitch("s1", cls=OVSKernelSwitch, protocols="OpenFlow13")
         s2 = self.addSwitch("s2", cls=OVSKernelSwitch, protocols="OpenFlow13")
         s3 = self.addSwitch("s3", cls=OVSKernelSwitch, protocols="OpenFlow13")
@@ -34,6 +64,22 @@ class IBNTopo(Topo):
         self.addLink(s2, h2, cls=TCLink, **bw)
         self.addLink(s3, h3, cls=TCLink, **bw)
         self.addLink(s3, h4, cls=TCLink, **bw)
+
+    def _build_from_config(self, config):
+        # 1. 添加交换机
+        for sw in config.get("switches", []):
+            self.addSwitch(sw["name"], cls=OVSKernelSwitch, protocols="OpenFlow13")
+        
+        # 2. 添加主机
+        for host in config.get("hosts", []):
+            self.addHost(host["name"], ip=host["ip"])
+        
+        # 3. 添加链路
+        for link in config.get("links", []):
+            bw_val = link.get("bw", 100)
+            delay_val = link.get("delay", "1ms")
+            bw = {"bw": bw_val, "delay": delay_val}
+            self.addLink(link["src"], link["dst"], cls=TCLink, **bw)
 
 
 def _wait_for_switches_connected(net, timeout=15):
@@ -74,7 +120,8 @@ def run(cli_mode=False):
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
 
-    topo = IBNTopo()
+    config = load_topology_config()
+    topo = IBNTopo(config=config)
     net = Mininet(
         topo=topo,
         controller=RemoteController("c0", ip="127.0.0.1", port=6633),

@@ -42,39 +42,46 @@ class IBNController(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
-        """L2 自学习转发"""
-        msg      = ev.msg
-        datapath = msg.datapath
-        ofproto  = datapath.ofproto
-        parser   = datapath.ofproto_parser
-        in_port  = msg.match["in_port"]
-        dpid     = datapath.id
+        """L2 自学习转发（带异常防护与健壮校验）"""
+        try:
+            msg      = ev.msg
+            datapath = msg.datapath
+            ofproto  = datapath.ofproto
+            parser   = datapath.ofproto_parser
+            in_port  = msg.match["in_port"]
+            dpid     = datapath.id
 
-        pkt = packet.Packet(msg.data)
-        eth = pkt.get_protocols(ethernet.ethernet)[0]
-        dst, src = eth.dst, eth.src
+            pkt = packet.Packet(msg.data)
+            eth_list = pkt.get_protocols(ethernet.ethernet)
+            if not eth_list:
+                self.logger.warning("Received packet without Ethernet header from dpid=%s", dpid)
+                return
+            eth = eth_list[0]
+            dst, src = eth.dst, eth.src
 
-        # 核心修复：丢弃 LLDP 包，防止 L2 自学习交换机将其泛洪导致 rest_topology 产生幽灵链路
-        if eth.ethertype == 0x88cc:
-            return
-            
-        # 丢弃 IPv6 的多播/邻居发现包，防止产生不必要的泛洪风暴
-        if eth.ethertype == 0x86dd:
-            return
+            # 核心修复：丢弃 LLDP 包，防止 L2 自学习交换机将其泛洪导致 rest_topology 产生幽灵链路
+            if eth.ethertype == 0x88cc:
+                return
+                
+            # 丢弃 IPv6 的多播/邻居发现包，防止产生不必要的泛洪风暴
+            if eth.ethertype == 0x86dd:
+                return
 
-        self.mac_to_port.setdefault(dpid, {})
-        self.mac_to_port[dpid][src] = in_port
+            self.mac_to_port.setdefault(dpid, {})
+            self.mac_to_port[dpid][src] = in_port
 
-        out_port = self.mac_to_port[dpid].get(dst, ofproto.OFPP_FLOOD)
-        actions  = [parser.OFPActionOutput(out_port)]
+            out_port = self.mac_to_port[dpid].get(dst, ofproto.OFPP_FLOOD)
+            actions  = [parser.OFPActionOutput(out_port)]
 
-        if out_port != ofproto.OFPP_FLOOD:
-            match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
-            self._add_flow(datapath, 1, match, actions, idle=30)
+            if out_port != ofproto.OFPP_FLOOD:
+                match = parser.OFPMatch(in_port=in_port, eth_dst=dst, eth_src=src)
+                self._add_flow(datapath, 1, match, actions, idle=30)
 
-        data = msg.data if msg.buffer_id == ofproto.OFP_NO_BUFFER else None
-        out  = parser.OFPPacketOut(
-            datapath=datapath, buffer_id=msg.buffer_id,
-            in_port=in_port, actions=actions, data=data,
-        )
-        datapath.send_msg(out)
+            data = msg.data if msg.buffer_id == ofproto.OFP_NO_BUFFER else None
+            out  = parser.OFPPacketOut(
+                datapath=datapath, buffer_id=msg.buffer_id,
+                in_port=in_port, actions=actions, data=data,
+            )
+            datapath.send_msg(out)
+        except Exception as e:
+            self.logger.error("Error handling packet_in: %s", str(e), exc_info=True)

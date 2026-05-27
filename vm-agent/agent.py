@@ -1,590 +1,95 @@
 """
-VM Agent — 运行在 Ubuntu VM 上的 Flask 服务
-对接 Mininet 和 Ryu，向 Windows 主机暴露统一 REST API
+VM Agent — 仅作为开发调试辅助服务
+(注：IBN 系统的网络拓扑感知、自发现与意图策略下发已 100% 迁移至后端直连 Ryu API，本服务不参与生成任何系统业务逻辑)
 """
 from flask import Flask, jsonify, request
 import subprocess
-import requests
 import time
-import json
 import os
-import re as _re
+import re
+import logging
+from logging.handlers import RotatingFileHandler
 
 app = Flask(__name__)
 
-RYU_BASE = "http://127.0.0.1:8080"   # Ryu REST API 本地地址
+# 配置 API Key
+API_KEY = os.getenv("VM_AGENT_API_KEY", "IBN-Debug-Secret-Key")
 
+# 配置日志审计组件
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+log_file = os.path.join(LOG_DIR, "agent.log")
 
-def _fetch_ryu_hosts():
-    """从 Ryu /v1.0/topology/hosts 获取动态学习到的主机列表。
-    返回 Ryu 原始格式，不作任何加工。
-    """
-    try:
-        r = requests.get(f"{RYU_BASE}/v1.0/topology/hosts", timeout=5)
-        if r.ok:
-            return r.json() or []
-    except Exception:
-        pass
-    return []
+handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
+handler.setFormatter(logging.Formatter(
+    '%(asctime)s [%(levelname)s] (Client: %(client_ip)s) %(message)s'
+))
+logger = logging.getLogger("VM-Agent")
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
+# 安全正则限制：仅允许字母、数字、空格、点号、短横线、斜杠
+SAFE_CMD_PATTERN = re.compile(r"^[a-zA-Z0-9\s.\-/]+$")
 
-def _ryu_hosts_to_ibn_format(ryu_hosts_raw):
-    """将 Ryu /v1.0/topology/hosts 返回的原始格式转换为 IBN 系统的主机信息格式。
+def get_client_ip():
+    return request.remote_addr or "unknown"
 
-    命名策略：按 IP 地址升序排序，依次编号为 h1/h2/h3/...
-    这样任何拓扑都能自动适应，无需预先配置主机名。
-    """
-    import ipaddress
-
-    hosts = []
-    seen_macs = set()
-
-    for ryu_host in ryu_hosts_raw:
-        mac = ryu_host.get("mac", "")
-        if not mac or mac in seen_macs:
-            continue
-        seen_macs.add(mac)
-
-        ipv4_list = ryu_host.get("ipv4", [])
-        ip = ipv4_list[0] if ipv4_list else None
-        port_info = ryu_host.get("port", {})
-        sw_dpid = port_info.get("dpid", "")
-        port_no = port_info.get("port_no")
-
-        # dpid 转为交换机名（完全来自 Ryu 数据，无静态映射）
-        connected_switch = None
-        if sw_dpid:
-            try:
-                sw_num = int(sw_dpid, 16) if isinstance(sw_dpid, str) else int(sw_dpid)
-                connected_switch = f"s{sw_num}"
-            except Exception:
-                pass
-
-        hosts.append({
-            "ip": ip,
-            "mac": mac,
-            "connected_switch": connected_switch,
-            "port": port_no,
-        })
-
-    # 按 IP 地址升序排序，保证命名编号确定性
-    def _ip_sort_key(h):
-        try:
-            return ipaddress.ip_address(h["ip"] or "255.255.255.255")
-        except Exception:
-            return ipaddress.ip_address("255.255.255.255")
-
-    hosts.sort(key=_ip_sort_key)
-
-    # 动态编号：h1, h2, h3, ...（纯由 Ryu 发现结果决定，无静态配置）
-    for i, h in enumerate(hosts, 1):
-        h["id"] = f"h{i}"
-
-    return hosts
-
-
-def safe_json(resp):
-    """安全解析 HTTP 响应 JSON，空响应返回 None"""
-    try:
-        text = resp.text.strip()
-        if not text:
-            return None
-        return resp.json()
-    except Exception:
-        return None
-
-# ─────────────────────────────────────────────────────
-#  健康检查
-# ─────────────────────────────────────────────────────
 @app.route("/ping")
 def ping():
+    """健康检查端点"""
     return jsonify({"status": "ok", "timestamp": time.time()})
 
-
-# ─────────────────────────────────────────────────────
-#  主机动态发现 — 纯 Ryu 交互，无静态配置
-#  主机命名按 IP 升序动态编号（h1/h2/h3/...），适配任何拓扑
-# ─────────────────────────────────────────────────────
-@app.route("/hosts")
-def get_hosts():
+@app.route("/mininet/exec", methods=["POST"])
+def exec_mininet_cmd():
     """
-    完全动态获取主机信息，纯 Ryu 交互，不依赖任何静态配置：
-
-    1. 查询 Ryu /v1.0/topology/hosts（Ryu PacketIn 学习结果）
-    2. 若为空，轻微等待重试（最多 3 次，不操作 VM 其他部分）
-    3. 按 IP 地址升序排序，动态编号为 h1/h2/h3/...
+    在 Mininet 中执行仿真命令（如 ping、iperf、link up/down），仅作为开发调试辅助
     """
-    ryu_hosts = _fetch_ryu_hosts()
+    client_ip = get_client_ip()
+    
+    # 1. API Key 认证
+    auth_key = request.headers.get("X-API-Key")
+    if auth_key != API_KEY:
+        logger.warning("Unauthorized access attempt", extra={"client_ip": client_ip})
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
 
-    # Ryu 尚未学习到主机时，尝试轻微等待重试（Mininet 启动时 pingAll 会触发 Ryu 学习）
-    # 注意：这里仅重试查询 Ryu，不对 VM 做任何操作
-    if not ryu_hosts:
-        for _ in range(3):
-            time.sleep(1)
-            ryu_hosts = _fetch_ryu_hosts()
-            if ryu_hosts:
-                break
+    req_data = request.json or {}
+    command = req_data.get("command", "").strip()
+    if not command:
+        return jsonify({"success": False, "error": "Missing command argument"}), 400
 
-    if not ryu_hosts:
+    # 2. 安全性校验：防命令注入
+    if not SAFE_CMD_PATTERN.match(command):
+        logger.warning(
+            f"Blocked command with disallowed characters: {command}", 
+            extra={"client_ip": client_ip}
+        )
+        return jsonify({"success": False, "error": "Command contains disallowed characters (only a-z, A-Z, 0-9, space, '.', '-', '/' are allowed)"}), 403
+
+    logger.info(f"Executing command: {command}", extra={"client_ip": client_ip})
+
+    try:
+        # 执行底层仿真命令。出于安全考虑，必须通过正则防注入校验，并且 timeout 设为 15.0 秒
+        res = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=15.0
+        )
+        logger.info(f"Command execution completed with code: {res.returncode}", extra={"client_ip": client_ip})
         return jsonify({
-            "hosts": [],
-            "count": 0,
-            "discovered": False,
-            "warning": (
-                "Ryu 尚未学习到主机信息。"
-                "请确认：(1) Mininet 已启动且完成 pingAll；"
-                "(2) Ryu 已加载 ryu.topology.switches --observe-links"
-            ),
+            "success": res.returncode == 0,
+            "stdout": res.stdout,
+            "stderr": res.stderr,
+            "returncode": res.returncode
         })
-
-    hosts = _ryu_hosts_to_ibn_format(ryu_hosts)
-    return jsonify({
-        "hosts": hosts,
-        "count": len(hosts),
-        "discovered": True,
-    })
-
-
-# ─────────────────────────────────────────────────────
-#  诊断端点 — 查看 Ryu 原始返回（调试用）
-#  在 Ubuntu VM 上访问: http://127.0.0.1:5000/debug/ryu
-# ─────────────────────────────────────────────────────
-@app.route("/debug/ryu")
-def debug_ryu():
-    result = {}
-    for path in [
-        "/v1.0/topology/switches",
-        "/v1.0/topology/links",
-        "/v1.0/topology/hosts",
-        "/stats/switches",
-    ]:
-        try:
-            r = requests.get(f"{RYU_BASE}{path}", timeout=5)
-            data = safe_json(r)
-            result[path] = {
-                "http_status": r.status_code,
-                "body_length": len(r.text),
-                "data": data,
-                "raw_preview": r.text[:200] if data is None else None,
-            }
-        except Exception as e:
-            result[path] = {"error": str(e)}
-    return jsonify(result)
-
-# ─────────────────────────────────────────────────────
-#  拓扑 — 唯一策略: Ryu LLDP topology API
-#  要求 Ryu 启动时加载 ryu.topology.switches --observe-links
-# ─────────────────────────────────────────────────────
-@app.route("/topology")
-def get_topology():
-    """
-    从 Ryu 的 topology REST API 获取真实拓扑，不做任何猜测或硬编码推断。
-    支持任意拓扑结构，不限于当前三交换机测试网络。
-    """
-    try:
-        # ── Step 1: 检查 topology API 可达性 ─────────────────
-        sw_resp = requests.get(f"{RYU_BASE}/v1.0/topology/switches", timeout=5)
-        if not sw_resp.ok or sw_resp.status_code == 404:
-            return jsonify({
-                "nodes": [], "links": [],
-                "error": "Ryu topology API 不可用，请确认 ryu.topology.switches 已加载 (--observe-links)",
-                "source": "error"
-            }), 200
-
-        switches = safe_json(sw_resp) or []
-        if not switches:
-            return jsonify({
-                "nodes": [], "links": [],
-                "error": "Ryu 返回了空的交换机列表，网络可能尚未就绪",
-                "source": "pending"
-            }), 200
-
-        # ── Step 2: 轮询等待 LLDP 发现链路（最多 10 次，间隔 1s）─
-        # LLDP 发现交换机间链路需要时间，避免返回无链路的拓扑
-        links_raw = []
-        for attempt in range(10):
-            lk_resp = requests.get(f"{RYU_BASE}/v1.0/topology/links", timeout=5)
-            links_raw = safe_json(lk_resp) or []
-            # 交换机数 >= 2 时，若已发现至少 (sw数-1)*2 条有向链路则认为已稳定
-            expected = max(1, (len(switches) - 1) * 2)
-            if len(links_raw) >= expected:
-                break
-            if attempt < 9:
-                time.sleep(1)
-
-        # ── Step 3: 获取已学习到的主机 ──────────────────────
-        ht_resp = requests.get(f"{RYU_BASE}/v1.0/topology/hosts", timeout=5)
-        hosts_raw = safe_json(ht_resp) or []
-
-        # ── Step 4: 构建节点列表（交换机）────────────────────
-        nodes = []
-        dpid_to_node = {}
-        for sw in switches:
-            dpid = sw.get("dpid", "")
-            node_id = f"s{_dpid_int(dpid)}"
-            dpid_to_node[dpid] = node_id
-            # 提取端口信息，记录端口号到接口名映射（供链路 ID 生成用）
-            ports = sw.get("ports", [])
-            nodes.append({
-                "id": node_id,
-                "type": "switch",
-                "label": node_id,
-                "dpid": dpid,
-                "port_count": len(ports),
-            })
-
-        # ── Step 5: 构建交换机间链路（来自 LLDP 真实发现）───
-        link_list = []
-        seen_links = set()
-        for link in links_raw:
-            src_dpid = link.get("src", {}).get("dpid", "")
-            dst_dpid = link.get("dst", {}).get("dpid", "")
-            src_port  = link.get("src", {}).get("port_no")
-            dst_port  = link.get("dst", {}).get("port_no")
-            src_id = dpid_to_node.get(src_dpid, f"s_{src_dpid}")
-            dst_id = dpid_to_node.get(dst_dpid, f"s_{dst_dpid}")
-            # 去重：LLDP 链路是双向的，只保留一条
-            key = tuple(sorted([src_id, dst_id]))
-            if key in seen_links:
-                continue
-            seen_links.add(key)
-            link_list.append({
-                "id": f"{src_id}-{dst_id}",
-                "source": src_id,
-                "target": dst_id,
-                "state": "up",
-                "src_port": src_port,
-                "dst_port": dst_port,
-            })
-
-        # ── Step 6: 构建主机节点及主机-交换机链路 ────────────
-        # 主机信息完全来自 Ryu 的 PacketIn 学习，不依赖任何配置文件
-        mac_to_host_id = {}
-        host_counter = 1
-        for host in hosts_raw:
-            mac  = host.get("mac", "")
-            ipv4 = host.get("ipv4", [])
-            port_info = host.get("port", {})
-            sw_dpid   = port_info.get("dpid", "")
-            port_no   = port_info.get("port_no")
-            connected_sw = dpid_to_node.get(sw_dpid)
-
-            # 用 MAC 地址作为唯一键，避免重复添加
-            if mac in mac_to_host_id:
-                continue
-            host_id = f"h{host_counter}"
-            host_counter += 1
-            mac_to_host_id[mac] = host_id
-
-            nodes.append({
-                "id": host_id,
-                "type": "host",
-                "label": host_id,
-                "mac": mac,
-                "ip": ipv4[0] if ipv4 else None,
-            })
-
-            if connected_sw:
-                link_list.append({
-                    "id": f"{host_id}-{connected_sw}",
-                    "source": host_id,
-                    "target": connected_sw,
-                    "state": "up",
-                    "src_port": None,
-                    "dst_port": port_no,
-                })
-
-        return jsonify({
-            "nodes": nodes,
-            "links": link_list,
-            "timestamp": time.time(),
-            "source": "topology_api",
-            "switch_count": len(switches),
-            "link_count": len(link_list),
-        })
-
+    except subprocess.TimeoutExpired:
+        logger.error(f"Command timed out: {command}", extra={"client_ip": client_ip})
+        return jsonify({"success": False, "error": "Command execution timeout"}), 504
     except Exception as e:
-        return jsonify({"nodes": [], "links": [], "error": str(e), "source": "error"}), 200
-
-
-
-
-
-
-
-# ─────────────────────────────────────────────────────
-#  统计信息 — 从 Ryu 获取端口统计
-# ─────────────────────────────────────────────────────
-@app.route("/stats")
-def get_stats():
-    try:
-        resp = requests.get(f"{RYU_BASE}/stats/switches", timeout=5)
-        if not resp.ok:
-            return jsonify({"switches": []})
-        dpids = resp.json()
-        switches = []
-        for dpid in dpids:
-            port_resp = requests.get(f"{RYU_BASE}/stats/port/{dpid}", timeout=5)
-            if port_resp.ok:
-                ports_raw = port_resp.json().get(str(dpid), [])
-                ports = [{
-                    "port_no": p.get("port_no"),
-                    "rx_packets": p.get("rx_packets", 0),
-                    "tx_packets": p.get("tx_packets", 0),
-                    "rx_bytes": p.get("rx_bytes", 0),
-                    "tx_bytes": p.get("tx_bytes", 0),
-                    "rx_errors": p.get("rx_errors", 0),
-                    "tx_errors": p.get("tx_errors", 0),
-                } for p in ports_raw]
-                switches.append({"dpid": str(dpid), "ports": ports})
-        return jsonify({"switches": switches, "timestamp": time.time()})
-    except Exception as e:
-        return jsonify({"switches": [], "error": str(e)})
-
-
-# ─────────────────────────────────────────────────────
-#  流表信息 — 从 Ryu 获取指定交换机的流表
-# ─────────────────────────────────────────────────────
-@app.route("/flows/<dpid>")
-def get_flows(dpid):
-    try:
-        resp = requests.get(f"{RYU_BASE}/stats/flow/{dpid}", timeout=5)
-        if not resp.ok:
-            return jsonify({"flows": [], "error": f"Ryu HTTP {resp.status_code}"})
-        data = resp.json()
-        flows = data.get(str(dpid), [])
-        return jsonify({"flows": flows, "timestamp": time.time()})
-    except Exception as e:
-        return jsonify({"flows": [], "error": str(e)})
-
-
-# ── 端口采样缓存：{dpid_portno: (timestamp, bytes_total)} ──
-_port_samples: dict = {}
-
-# 链路带宽上限（bps），与 mininet_topology.py 中 bw=100 Mbps 对应
-_LINK_BW_BPS = 100 * 1_000_000
-
-
-@app.route("/link-stats")
-def get_link_stats():
-    """基于 OVS 端口字节差值计算真实利用率，延迟根据丢包率估算。
-    两次调用之间取差值，首次调用返回 0 利用率（无前样本）但不返回随机值。
-    """
-    global _port_samples
-    now = time.time()
-
-    try:
-        # ── 1. 拉取交换机列表 ─────────────────────────────
-        sw_resp = requests.get(f"{RYU_BASE}/stats/switches", timeout=5)
-        if not sw_resp.ok:
-            return jsonify({"links": [], "error": "无法获取交换机列表", "timestamp": now})
-        dpids = sw_resp.json() or []
-
-        # ── 2. 对每台交换机采样端口字节数 ─────────────────
-        new_samples: dict = {}
-        # dpid → {port_no: {rx_bytes, tx_bytes, rx_errors, tx_packets}}
-        port_data_map: dict = {}
-        for dpid in dpids:
-            pr = requests.get(f"{RYU_BASE}/stats/port/{dpid}", timeout=5)
-            if not pr.ok:
-                continue
-            ports_raw = pr.json().get(str(dpid), [])
-            port_data_map[dpid] = {}
-            for p in ports_raw:
-                pno = p.get("port_no", 0)
-                if pno == 4294967294:   # LOCAL 端口，跳过
-                    continue
-                rb = p.get("rx_bytes", 0)
-                tb = p.get("tx_bytes", 0)
-                re_ = p.get("rx_errors", 0)
-                txp = p.get("tx_packets", 0)
-                rxp = p.get("rx_packets", 0)
-                key = f"{dpid}:{pno}"
-                new_samples[key] = (now, rb + tb)
-                port_data_map[dpid][pno] = {
-                    "rx_bytes": rb, "tx_bytes": tb,
-                    "rx_errors": re_, "tx_packets": txp, "rx_packets": rxp,
-                }
-
-        # ── 3. 获取当前拓扑，拿到链路列表 ─────────────────
-        topo_resp = get_topology()
-        resp_obj = topo_resp[0] if isinstance(topo_resp, tuple) else topo_resp
-        topo_data = resp_obj.get_json()
-        links = topo_data.get("links", [])
-
-        # ── 4. 构建 dpid_to_node 映射（node_id → dpid）───
-        node_to_dpid: dict = {}
-        for node in topo_data.get("nodes", []):
-            if node.get("type") == "switch" and node.get("dpid"):
-                node_to_dpid[node["id"]] = int(node["dpid"], 16) if isinstance(node["dpid"], str) else node["dpid"]
-
-        # ── 5. 计算每条链路的利用率 ───────────────────────
-        link_stats = []
-        for link in links:
-            if link.get("state") == "down":
-                continue
-
-            src_id = link.get("source", "")
-            dst_id = link.get("target", "")
-            lid = link.get("id", f"{src_id}-{dst_id}")
-
-            # 获取 src 端口字节差值（选编号最小的非 LOCAL 端口）
-            utilization_pct = 0.0
-            latency_ms = 2.0          # 基准延迟（拓扑配置 1ms + 1ms 抖动）
-            packet_loss_pct = 0.0
-
-            src_dpid = node_to_dpid.get(src_id)
-            if src_dpid and src_dpid in port_data_map:
-                src_ports = port_data_map[src_dpid]
-                if src_ports:
-                    # 取第一个有效端口
-                    ref_pno = min(src_ports.keys())
-                    key = f"{src_dpid}:{ref_pno}"
-                    prev = _port_samples.get(key)
-                    if prev:
-                        prev_ts, prev_bytes = prev
-                        dt = now - prev_ts
-                        if dt > 0.1:
-                            delta_bytes = new_samples.get(key, (0, 0))[1] - prev_bytes
-                            if delta_bytes >= 0:
-                                bps = (delta_bytes * 8) / dt
-                                utilization_pct = round(min(bps / _LINK_BW_BPS * 100, 100.0), 1)
-
-                    # 延迟估算：根据错误率加权，无错误时保持基准
-                    pd = src_ports[ref_pno]
-                    total_pkt = pd["rx_packets"] + pd["tx_packets"]
-                    if total_pkt > 0:
-                        err_rate = pd["rx_errors"] / total_pkt
-                        latency_ms = round(2.0 + err_rate * 50, 2)
-                        packet_loss_pct = round(min(err_rate * 100, 100.0), 2)
-
-            link_stats.append({
-                "id": lid,
-                "latency_ms": latency_ms,
-                "packet_loss_pct": packet_loss_pct,
-                "utilization_pct": utilization_pct,
-            })
-
-        # ── 6. 更新缓存 ───────────────────────────────────
-        _port_samples = new_samples
-
-        return jsonify({"links": link_stats, "timestamp": now})
-
-    except Exception as e:
-        return jsonify({"links": [], "error": str(e), "timestamp": now})
-
-
-# ─────────────────────────────────────────────────────
-#  策略执行 — 调用 Ryu REST API 下发流表
-# ─────────────────────────────────────────────────────
-@app.route("/policy/apply", methods=["POST"])
-def apply_policy():
-    policy = request.json
-    try:
-        policy_type = policy.get("policy_type", "flow_rule")
-        if policy_type == "meter":
-            return _apply_meter(policy)
-        elif policy_type == "flow_rule":
-            return _apply_flow(policy)
-        else:
-            return jsonify({"success": False, "error": f"不支持的策略类型: {policy_type}"}), 400
-    except Exception as e:
+        logger.error(f"Command failed with error: {e}", extra={"client_ip": client_ip}, exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
 
-
-def _dpid_int(dpid):
-    """将 dpid 字符串或整数统一转为 int"""
-    if isinstance(dpid, int):
-        return dpid
-    try:
-        return int(dpid, 16)
-    except (ValueError, TypeError):
-        return int(dpid)
-
-
-def _apply_flow(policy):
-    dpid     = policy.get("dpid", "1")
-    match    = policy.get("match", {})
-    actions_raw = policy.get("actions", [])
-    intent_id = policy.get("intent_id", "")
-
-    cookie = 0
-    if intent_id:
-        import hashlib
-        cookie = int(hashlib.md5(intent_id.encode()).hexdigest()[:15], 16)
-
-    flow_entry = {
-        "dpid": _dpid_int(dpid),
-        "cookie": cookie,
-        "priority": policy.get("priority", 100),
-        "idle_timeout": policy.get("idle_timeout", 0),
-        "hard_timeout": policy.get("hard_timeout", 0),
-        "match": {},
-        "actions": [],
-    }
-
-    for k, v in match.items():
-        if v is not None:
-            flow_entry["match"][k] = v
-            
-    if ("ipv4_src" in match or "ipv4_dst" in match) and "eth_type" not in flow_entry["match"]:
-        flow_entry["match"]["eth_type"] = 0x0800
-    elif ("ipv6_src" in match or "ipv6_dst" in match) and "eth_type" not in flow_entry["match"]:
-        flow_entry["match"]["eth_type"] = 0x86DD
-
-    for action in actions_raw:
-        atype = action.get("type", "")
-        if atype == "output":
-            flow_entry["actions"].append({"type": "OUTPUT", "port": action.get("value", "NORMAL")})
-        elif atype == "drop":
-            flow_entry["instructions"] = [{"type": "CLEAR_ACTIONS"}]
-            del flow_entry["actions"]
-            break
-        elif atype == "meter":
-            flow_entry["actions"].append({"type": "METER", "meter_id": action.get("value")})
-        elif atype == "delete":
-            if cookie != 0:
-                flow_entry["cookie_mask"] = 0xFFFFFFFFFFFFFFFF
-            resp = requests.delete(f"{RYU_BASE}/stats/flowentry/delete", json=flow_entry, timeout=5)
-            return jsonify({"success": resp.ok, "ryu_status": resp.status_code})
-
-    resp = requests.post(f"{RYU_BASE}/stats/flowentry/add", json=flow_entry, timeout=5)
-    return jsonify({"success": resp.ok, "ryu_status": resp.status_code, "ryu_response": resp.text})
-
-
-def _apply_meter(policy):
-    dpid     = policy.get("dpid", "1")
-    meter_id = policy.get("meter_id", 1)
-    rate_kbps = policy.get("rate_kbps", 1000)
-
-    meter_entry = {
-        "dpid": _dpid_int(dpid),
-        "meter_id": meter_id,
-    }
-
-    actions_raw = policy.get("actions", [])
-    is_delete = any(a.get("type") == "delete" for a in actions_raw)
-
-    if is_delete:
-        _apply_flow(policy)  # 删除关联流表
-        resp = requests.post(f"{RYU_BASE}/stats/meterentry/delete", json=meter_entry, timeout=5)
-    else:
-        meter_entry["flags"] = ["KBPS"]
-        meter_entry["bands"] = [{"type": "DROP", "rate": rate_kbps, "burst_size": 10}]
-        resp = requests.post(f"{RYU_BASE}/stats/meterentry/add", json=meter_entry, timeout=5)
-        if resp.ok:
-            _apply_flow(policy)  # 添加关联流表
-            
-    return jsonify({"success": resp.ok, "ryu_status": resp.status_code})
-
-
-@app.route("/policy/rollback", methods=["POST"])
-def rollback_policy():
-    policy = request.json
-    for action in policy.get("actions", []):
-        action["type"] = "delete"
-    return apply_policy()
-
-
 if __name__ == "__main__":
+    # 限制只能从宿主机或本地通信（生产可配置 127.0.0.1 或是特定内网网卡 IP，此处开启 0.0.0.0 配合 IP 白名单/API Key 最佳）
     app.run(host="0.0.0.0", port=5000, threaded=True, debug=False)
