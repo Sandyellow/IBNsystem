@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
 :root {
   /* Modern SaaS Color Palette */
   --color-bg: #f8fafc;
@@ -87,25 +89,28 @@ body { overflow: hidden; height: 100vh; }
   transform: scale(0.96);
 }
 .header-logo:hover .logo-icon-wrapper {
-  transform: rotate(90deg) scale(1.08);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px var(--color-text-primary);
 }
 .logo-icon-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
   color: #ffffff;
-  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+  background: #60a5fa;
   padding: 6px;
-  border-radius: 8px;
-  box-shadow: 0 3px 8px rgba(59, 130, 246, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.25);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 0;
+  border: 2px solid var(--color-text-primary);
+  box-shadow: 2px 2px 0px var(--color-text-primary);
+  transition: all 0.1s;
 }
 .logo-text-main {
-  font-weight: 800;
-  font-size: 16px;
+  font-weight: 400;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 10px;
   color: var(--color-text-primary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
 }
 .logo-divider {
   color: var(--color-border-strong);
@@ -114,10 +119,11 @@ body { overflow: hidden; height: 100vh; }
   margin: 0 4px;
 }
 .logo-text-sub {
-  font-weight: 500;
-  font-size: 13px;
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  font-weight: normal;
   color: var(--color-text-secondary);
-  letter-spacing: -0.01em;
+  margin-top: 2px;
 }
 .header-spacer { flex: 1; }
 .header-status {
@@ -286,28 +292,29 @@ body { overflow: hidden; height: 100vh; }
 
 .bubble {
   padding: 12px 16px;
-  border-radius: 12px;
+  border-radius: 0;
   font-size: 13.5px;
   line-height: 1.5;
   max-width: 90%;
   word-break: break-word;
-  box-shadow: var(--shadow-sm);
+  border: 2px solid var(--color-text-primary);
+  box-shadow: 2px 2px 0px rgba(15,23,42,0.1);
 }
 .bubble-user {
-  background: linear-gradient(135deg, var(--color-primary) 0%, #818cf8 100%);
-  color: white;
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
   align-self: flex-end;
-  border: none;
-  font-weight: 500;
-  border-bottom-right-radius: 4px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  border-bottom-right-radius: 0;
+  font-weight: 600;
+  box-shadow: 3px 3px 0px var(--color-primary);
+  border: 2px solid var(--color-primary);
 }
 .bubble-system {
   background: #ffffff;
-  border: 1px solid var(--color-border);
   align-self: flex-start;
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 0;
   color: var(--color-text-primary);
+  box-shadow: 3px 3px 0px var(--color-text-primary);
 }
 .bubble-warning {
   background: var(--color-warning-light);
@@ -336,10 +343,14 @@ body { overflow: hidden; height: 100vh; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 14px;
+  font-family: 'VT323', monospace;
+  font-weight: normal;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: 0;
+  border: 1px solid currentColor;
+  box-shadow: 2px 2px 0px currentColor;
+  text-transform: uppercase;
 }
 .badge-pending { background: #f1f5f9; color: var(--color-text-muted); }
 .badge-validating { background: var(--color-info-light); color: var(--color-info); }
@@ -504,8 +515,8 @@ body { overflow: hidden; height: 100vh; }
 /* ─── Node styles (React Flow) ────────────────────── */
 .topo-node {
   background: white;
-  border: 1px solid var(--color-border-strong); /* Less aggressive border */
-  border-radius: var(--radius-md);
+  border: 2px solid var(--color-text-primary);
+  border-radius: 0;
   padding: 10px 14px;
   display: flex;
   flex-direction: column;
@@ -513,19 +524,30 @@ body { overflow: hidden; height: 100vh; }
   gap: 4px;
   min-width: 70px;
   cursor: pointer;
-  transition: var(--transition);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.04); /* Slightly softer shadow to compensate for border */
-  font-size: 12px;
+  transition: all 0.1s;
+  box-shadow: 3px 3px 0px rgba(15,23,42,1);
+  font-size: 15px;
+  font-family: 'VT323', monospace;
 }
-.topo-node:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.topo-node.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--color-primary-light); }
+.topo-node:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px rgba(15,23,42,1);
+}
+.topo-node.selected {
+  background: var(--color-bg-sidebar);
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0px rgba(15,23,42,1) !important;
+}
 .topo-node-icon { font-size: 22px; margin-bottom: 2px; }
-.topo-node-label { font-weight: 600; color: var(--color-text-primary); }
-.topo-node-ip { font-size: 10px; color: var(--color-text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+.topo-node-label { font-weight: 600; color: var(--color-text-primary); text-transform: uppercase; letter-spacing: 0.05em; }
+.topo-node-ip { font-size: 11px; color: var(--color-text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
 
-.node-switch { border-color: #60a5fa; }
+.node-switch { border-color: #60a5fa; box-shadow: 3px 3px 0px #60a5fa; }
+.node-switch:hover { box-shadow: 4px 4px 0px #60a5fa; }
 .node-switch .topo-node-label { color: #60a5fa; }
-.node-host { border-color: var(--color-success); }
+
+.node-host { border-color: var(--color-success); box-shadow: 3px 3px 0px var(--color-success); }
+.node-host:hover { box-shadow: 4px 4px 0px var(--color-success); }
 .node-host .topo-node-label { color: var(--color-success); }
 
 /* ─── Loading / Spinner ───────────────────────────── */
@@ -736,22 +758,23 @@ body { overflow: hidden; height: 100vh; }
 .suggestion-chip {
   padding: 8px 12px;
   background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full); /* Pill shape */
+  border: 2px solid var(--color-text-primary);
+  border-radius: 0;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  transition: var(--transition);
-  box-shadow: var(--shadow-sm);
+  font-size: 14px;
+  font-family: 'VT323', monospace;
+  font-weight: normal;
+  color: var(--color-text-primary);
+  transition: all 0.1s;
+  box-shadow: 2px 2px 0px var(--color-text-primary);
   white-space: nowrap;
 }
 .suggestion-chip:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-  background: var(--color-primary-light);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0px var(--color-primary);
+  background: var(--color-bg-card);
 }
 
 /* sidebar-left 允许 NetworkInfo 填充剩余高度 */
