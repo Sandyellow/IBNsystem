@@ -36,7 +36,7 @@ err()  { echo -e "${RED}[IBN]${NC} $1"; }
 # ── 清理旧进程 ────────────────────────────────────────
 log "清理旧进程..."
 pkill -f ryu-manager       2>/dev/null || true
-pkill -f "python3 agent"   2>/dev/null || true
+pkill -f "agent.py"   2>/dev/null || true
 pkill -f "mininet_topology"    2>/dev/null || true
 mn -c 2>/dev/null || true
 sleep 2

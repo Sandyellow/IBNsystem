@@ -447,12 +447,19 @@ class PolicyExecutor:
                     out_port = link["dst_port"]
                     break
 
+        # 强制将端口号转为 int，防止 Ryu API 接收到字符串端口引发 500 校验错误
+        port_val = out_port
+        try:
+            port_val = int(out_port)
+        except ValueError:
+            pass
+
         ok = await ryu_client.add_flow({
             "dpid": dpid,
             "cookie": cookie,
             "priority": 450,
             "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
-            "actions": [{"type": "OUTPUT", "port": out_port}],
+            "actions": [{"type": "OUTPUT", "port": port_val}],
         })
 
         if not ok:
