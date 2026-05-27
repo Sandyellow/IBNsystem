@@ -21,9 +21,12 @@ const useStore = create(subscribeWithSelector((set, get) => ({
   // ─── UI 状态 ───────────────────────────────
   selectedNode: null,
   activePathEdges: [],
+  theme: 'pixel', // default to pixel since user liked it, but can be modern
 
   // ─── Actions ──────────────────────────────
   setSelectedNode: (node) => set({ selectedNode: node }),
+
+  toggleTheme: () => set(s => ({ theme: s.theme === 'pixel' ? 'modern' : 'pixel' })),
 
   setTopology: (topology) => set({ topology }),
 

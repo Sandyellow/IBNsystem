@@ -4,10 +4,10 @@ import { useWebSocket } from './services/useWebSocket'
 import NetworkTopology from './components/NetworkTopology/NetworkTopology'
 import NetworkInfo from './components/NetworkInfo/NetworkInfo'
 import IntentInput from './components/IntentInput/IntentInput'
-import { RefreshCw, Globe2, Command } from 'lucide-react'
+import { RefreshCw, Globe2, Command, Palette } from 'lucide-react'
 
 function Header() {
-  const { wsConnected, networkStatus, refreshTopology } = useStore()
+  const { wsConnected, networkStatus, refreshTopology, theme, toggleTheme } = useStore()
   const ryuOk = networkStatus.ryu_connected
   return (
     <header className="header">
@@ -20,6 +20,14 @@ function Header() {
         <span className="logo-text-sub">Intent-Based Networking</span>
       </div>
       <div className="header-spacer" />
+      <button
+        className="btn btn-sm"
+        onClick={toggleTheme}
+        title="切换主题"
+        style={{ marginRight: 8 }}
+      >
+        <Palette size={14} /> 切换主题
+      </button>
       <button
         className="btn btn-sm"
         onClick={refreshTopology}
@@ -43,12 +51,14 @@ export default function App() {
   const fetchInitialData = useStore(s => s.fetchInitialData)
   useWebSocket()
 
+  const theme = useStore(s => s.theme)
+
   useEffect(() => {
     fetchInitialData()
   }, [])
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout theme-${theme}`}>
       <Header />
 
       {/* 左侧栏 — 网络信息（含 Tabs 和 Alerts）*/}
