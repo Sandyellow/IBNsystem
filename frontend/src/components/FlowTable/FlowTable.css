@@ -19,6 +19,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .flow-count-badge {
@@ -34,16 +36,7 @@
   display: flex;
   gap: 6px;
   align-items: center;
-}
-
-.flow-switch-select {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  border-radius: 6px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
+  min-width: 0;
 }
 
 .flow-refresh-btn {
@@ -55,6 +48,8 @@
   font-size: 11px;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .flow-refresh-btn:hover:not(:disabled) {
   background: var(--color-primary);

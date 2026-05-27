@@ -1,11 +1,63 @@
-# Python
+# ==============================================================================
+# AskAnything Project Unified .gitignore
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Operating System (OS) Files
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ------------------------------------------------------------------------------
+# 2. Editor & IDE Settings (VS Code, PyCharm, WebStorm, Vim, etc.)
+# ------------------------------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# 3. Environment Variables & Secrets (NEVER commit credentials!)
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+*.pem
+*.key
+*.cert
+
+# ------------------------------------------------------------------------------
+# 4. Python Backend & VM Agent
+# ------------------------------------------------------------------------------
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
 *.so
-*.egg-info/
-.eggs/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing, coverage, and linting
 .pytest_cache/
 .mypy_cache/
 .pytype/
@@ -13,55 +65,52 @@ __pycache__/
 .coverage
 .coverage.*
 htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# ------------------------------------------------------------------------------
+# 5. Frontend (React / Vite / Node)
+# ------------------------------------------------------------------------------
+# Dependency directories
+node_modules/
+jspm_packages/
+.pnpm-store/
+.npm/
+
+# Build & distribution outputs
+dist/
+dist-ssr/
+build/
+out/
+
+# Vite/React cache
+.vite/
 .cache/
+.eslintcache
 
-# Virtual environments
-.venv/
-venv/
-ENV/
-.env/
-.env
+# Package manager log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Environment variables
-.env.local
-.env.*.local
-
+# ------------------------------------------------------------------------------
+# 6. Network Simulation, Ryu, Mininet & Runtime Artifacts
+# ------------------------------------------------------------------------------
 # Logs
 *.log
 logs/
 
-# Node / frontend
-node_modules/
-.pnpm-store/
-.npm/
-.yarn/
-.yarnrc
-.yarnrc.yml
-.yarn/cache/
-.yarn/unplugged/
-.yarn/build-state.yml
-.yarn/install-state.gz
-.pnp.*
-
-# Frontend builds
-frontend/dist/
-frontend/build/
-
-# Vite/React cache
-frontend/.vite/
-frontend/.cache/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Editor
-.vscode/
-.idea/
-*.swp
-
-# Mininet / Ryu artifacts
+# Mininet / Ryu temporary files & artifacts
 *.pid
 *.sock
 *.pcap
 *.db
+
+# Dynamic simulation dumps & state files
+backend/topo_dump.json
+backend/data/policies.json
+

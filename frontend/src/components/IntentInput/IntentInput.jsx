@@ -111,29 +111,36 @@ function ResultDisplay({ result, action }) {
   const color = controlColors[result.type] || '#48bb78'
 
   return (
-    <div className="bubble bubble-system">
-      <div className="result-header" style={{ color }}>
-        {ACTION_ICONS[result.type] || <CheckCircle2 size={16} />} {result.message}
+      <div className="bubble bubble-system">
+        <div className="result-header" style={{ color, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          {ACTION_ICONS[result.type] || <CheckCircle2 size={14} />} {result.message}
+        </div>
+        
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--color-border)', fontSize: 12 }}>
+        {result.installed_on && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+            <span style={{ color: 'var(--color-text-muted)', width: 60 }}>下发节点:</span>
+            <span style={{ color: 'var(--color-text-primary)' }}>{result.installed_on.join(', ')}</span>
+          </div>
+        )}
+        {result.meter_id && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+            <span style={{ color: 'var(--color-text-muted)', width: 60 }}>Meter ID:</span>
+            <span style={{ color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>#{result.meter_id} ({result.rate_kbps}Kbps)</span>
+          </div>
+        )}
+        {result.src_mac && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+            <span style={{ color: 'var(--color-text-muted)', width: 60 }}>匹配链路:</span>
+            <span style={{ color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>{result.src_mac} ↔ {result.dst_mac}</span>
+          </div>
+        )}
+        </div>
+        
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+          ← 请在左侧「活跃策略」中查看规则详情
+        </div>
       </div>
-      {result.installed_on && (
-        <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-          已下发到: {result.installed_on.join(', ')}
-        </div>
-      )}
-      {result.meter_id && (
-        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
-          Meter ID: #{result.meter_id} | {result.rate_kbps}Kbps
-        </div>
-      )}
-      {result.src_mac && (
-        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, fontFamily: 'monospace' }}>
-          {result.src_mac} ↔ {result.dst_mac}
-        </div>
-      )}
-      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
-        ← 切换左侧「活跃策略」Tab 查看详情
-      </div>
-    </div>
   )
 }
 
@@ -161,10 +168,10 @@ function IntentBubble({ record }) {
         {/* 解析结果气泡 */}
         {intent && (
           <div className="bubble bubble-system">
-            <div className="parsed-intent-title">
+            <div className="parsed-intent-title" style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--color-text-primary)' }}>
               {ACTION_ICONS[intent.action] || <CheckSquare size={14} />} {intent.explanation}
             </div>
-            <div className="parsed-intent-meta">
+            <div className="parsed-intent-meta" style={{ marginTop: 6 }}>
               <code>{intent.action}</code>
               {intent.src_host && ` | 源: ${intent.src_host}`}
               {intent.dst_host && ` | 目标: ${intent.dst_host}`}
@@ -187,9 +194,9 @@ function IntentBubble({ record }) {
 
 
         {/* 开发者详情 */}
-        <div className="dev-toggle-container">
+        <div className="dev-toggle-container" style={{ textAlign: 'left', paddingLeft: 4 }}>
           <button className="btn-dev-toggle" onClick={() => setShowDev(!showDev)}>
-            {showDev ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {showDev ? '隐藏详情' : '查看详情'}
+            {showDev ? <ChevronUp size={12} /> : <ChevronDown size={12} />} {showDev ? '隐藏底层详情' : '查看底层详情'}
           </button>
         </div>
 

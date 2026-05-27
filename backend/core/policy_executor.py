@@ -258,19 +258,41 @@ class PolicyExecutor:
         if not src_info or not dst_info:
             return {"success": False, "error": f"主机不存在: {intent.src_host} 或 {intent.dst_host}"}
 
+        src_mac = src_info["mac"]
+        dst_mac = dst_info["mac"]
+
+        # 与 block_traffic 保持一致：检测占位符 MAC，触发重新发现
+        if _is_placeholder_mac(src_mac) or _is_placeholder_mac(dst_mac):
+            logger.warning(
+                f"[PolicyExecutor] 限速操作检测到占位符 MAC（{src_mac}, {dst_mac}），"
+                "触发主机重新发现..."
+            )
+            await topo_manager.fetch_host_config()
+            src_info = topo_manager.get_host(intent.src_host)
+            dst_info = topo_manager.get_host(intent.dst_host)
+            if not src_info or not dst_info:
+                return {"success": False, "error": "重新发现后主机信息仍不存在"}
+            src_mac = src_info["mac"]
+            dst_mac = dst_info["mac"]
+            if _is_placeholder_mac(src_mac) or _is_placeholder_mac(dst_mac):
+                return {
+                    "success": False,
+                    "error": (
+                        f"无法获取 {intent.src_host}/{intent.dst_host} 的真实 MAC。"
+                        "请确认 Mininet 网络已启动，Ryu 控制器已学习到主机信息（可先执行 ping 测试触发学习）"
+                    ),
+                }
+
         bw_mbps = float(intent.parameters.get("bandwidth_mbps", 10))
         rate_kbps = int(bw_mbps * 1000)
         meter_id = _next_meter_id()
         cookie = _make_cookie(intent_id)
 
-        src_mac = src_info["mac"]
-        dst_mac = dst_info["mac"]
-
         # 在 src_host 连接的交换机上安装 Meter
         src_sw = src_info.get("connected_switch", "s1")
         dpid = topo_manager.get_switch_dpid(src_sw) or 1
 
-        # Step 1: 创建 Meter
+        # Step 1: 创建 Meter（超速部分由 OVS Meter 丢弃，正常速率内的包继续转发）
         meter_ok = await ryu_client.add_meter({
             "dpid": dpid,
             "meter_id": meter_id,
@@ -280,18 +302,32 @@ class PolicyExecutor:
         if not meter_ok:
             return {"success": False, "error": f"创建 Meter 失败 (dpid={dpid}, meter_id={meter_id})"}
 
-        # Step 2: 安装关联流表（应用 Meter + 正常转发）
-        # 在 OpenFlow 1.3 中 METER 是 Instruction，使用 instructions 字段
+        # Step 2: 安装限速流表
+        # ⚠️  Ryu /stats/flowentry/add 不支持 instructions 字段！
+        # 必须使用 actions 列表，在其中用 {"type": "METER"} 挂载 Meter，
+        # Ryu 会自动将其转换为 OpenFlow 1.3 的 METER Instruction + APPLY_ACTIONS Instruction。
         flow_ok = await ryu_client.add_flow({
             "dpid": dpid,
             "cookie": cookie,
             "priority": 400,
             "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
-            "instructions": [
-                {"type": "METER", "meter_id": meter_id},
-                {"type": "APPLY_ACTIONS", "actions": [{"type": "OUTPUT", "port": "NORMAL"}]},
+            "actions": [
+                {"type": "METER", "meter_id": meter_id},   # 超速丢包，正常流量继续
+                {"type": "OUTPUT", "port": "NORMAL"},       # 正常转发（依赖 OVS L2 学习）
             ],
         })
+
+        # 添加反向流表（不挂载 Meter），防止未知单播泛洪，保证双向通信正常
+        await ryu_client.add_flow({
+            "dpid": dpid,
+            "cookie": cookie,
+            "priority": 400,
+            "match": {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac},
+            "actions": [
+                {"type": "OUTPUT", "port": "NORMAL"},
+            ],
+        })
+
         if not flow_ok:
             await ryu_client.delete_meter(dpid, meter_id)
             return {"success": False, "error": "创建限速流表失败，已回滚 Meter"}
@@ -317,11 +353,13 @@ class PolicyExecutor:
             "dpid": dpid,
             "meter_id": meter_id,
             "rate_kbps": rate_kbps,
+            "bw_mbps": bw_mbps,
             "src_mac": src_mac,
             "dst_mac": dst_mac,
             "message": (
-                f"已在 {src_sw}(dpid={dpid}) 创建 Meter #{meter_id}（{bw_mbps}Mbps KBPS 限速），"
-                f"关联流表 cookie={hex(cookie)}"
+                f"已在 {src_sw}(dpid={dpid}) 创建 Meter #{meter_id}（{bw_mbps}Mbps，"
+                f"{rate_kbps}kbps KBPS 限速），正向流表 cookie={hex(cookie)}。"
+                f"超速包由 OVS Meter 丢弃，速率内的包正常转发"
             ),
         }
 
@@ -339,14 +377,22 @@ class PolicyExecutor:
 
         installed = []
         for dpid in dpids:
-            ok = await ryu_client.add_flow({
+            ok1 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
                 "priority": priority,
                 "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
                 "actions": [{"type": "OUTPUT", "port": "NORMAL"}],
             })
-            if ok:
+            # 双向下发：保证 OVS NORMAL 机制能学习到反向 MAC，避免未知单播全网泛洪
+            ok2 = await ryu_client.add_flow({
+                "dpid": dpid,
+                "cookie": cookie,
+                "priority": priority,
+                "match": {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac},
+                "actions": [{"type": "OUTPUT", "port": "NORMAL"}],
+            })
+            if ok1 and ok2:
                 installed.append(f"s{dpid}")
 
         if not installed:

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../../services/api'
 import { Cpu, RefreshCw, Hash, Clock } from 'lucide-react'
+import Select from '../common/Select'
 import './FlowTable.css'
 
 const ACTION_LABELS = {
@@ -202,16 +203,14 @@ export default function FlowTable({ autoRefresh = false }) {
           <span className="flow-count-badge">{totalFlows}</span>
         </div>
         <div className="flow-table-controls">
-          <select
-            className="flow-switch-select"
+          <Select
+            options={[
+              { label: '全部交换机', value: 'all' },
+              ...switches.map(dpid => ({ label: `dpid=${dpid}`, value: dpid }))
+            ]}
             value={selectedSwitch}
-            onChange={e => setSelectedSwitch(e.target.value)}
-          >
-            <option value="all">全部交换机</option>
-            {switches.map(dpid => (
-              <option key={dpid} value={dpid}>dpid={dpid}</option>
-            ))}
-          </select>
+            onChange={setSelectedSwitch}
+          />
           <button className="flow-refresh-btn" onClick={fetchFlows} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {loading ? <RefreshCw size={12} className="spin-icon" /> : <RefreshCw size={12} />} 刷新
           </button>

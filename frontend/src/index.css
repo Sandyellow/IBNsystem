@@ -242,29 +242,29 @@ body { overflow: hidden; height: 100vh; }
   flex-direction: column;
   gap: 10px;
 }
-.intent-entry { display: flex; flex-direction: column; gap: 6px; }
+.intent-entry { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 
 .bubble {
-  padding: 14px 18px;
-  border-radius: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
   font-size: 13px;
   line-height: 1.6;
-  max-width: 92%;
+  max-width: 95%;
   word-break: break-word;
 }
 .bubble-user {
-  background: #4f46e5;
+  background: var(--color-primary);
   color: white;
   align-self: flex-end;
-  border-bottom-right-radius: 4px;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+  border: none;
+  font-weight: 400;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.1);
 }
 .bubble-system {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   align-self: flex-start;
-  border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
 }
 .bubble-warning {
   background: var(--color-warning-light);
@@ -294,9 +294,9 @@ body { overflow: hidden; height: 100vh; }
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 20px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
 }
 .badge-pending { background: #f1f5f9; color: var(--color-text-muted); }
 .badge-validating { background: var(--color-info-light); color: var(--color-info); }
@@ -372,21 +372,21 @@ body { overflow: hidden; height: 100vh; }
 .intent-input-wrapper {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 4px;
-  transition: var(--transition);
+  gap: 8px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px;
+  transition: all 0.2s;
 }
 .intent-input-wrapper:focus-within {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-  background: white;
+  background: #ffffff;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 .intent-textarea {
   flex: 1;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border: none;
   background: transparent;
   font-size: 13px;
@@ -400,22 +400,20 @@ body { overflow: hidden; height: 100vh; }
 }
 .intent-textarea::placeholder { color: var(--color-text-muted); }
 .intent-send-btn {
-  width: 36px; height: 36px;
-  border-radius: 8px;
+  width: 32px; height: 32px;
+  border-radius: 6px;
   border: none;
-  background: #4f46e5;
+  background: var(--color-primary);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: var(--transition);
-  margin-bottom: 2px;
-  margin-right: 2px;
+  transition: all 0.15s;
 }
-.intent-send-btn:hover:not(:disabled) { background: #4338ca; transform: scale(1.05); }
-.intent-send-btn:disabled { opacity: 0.5; cursor: not-allowed; background: #cbd5e1; color: #f1f5f9; }
+.intent-send-btn:hover:not(:disabled) { background: var(--color-primary-dark); }
+.intent-send-btn:disabled { opacity: 0.5; cursor: not-allowed; background: var(--color-border-strong); color: white; }
 .intent-hint { font-size: 11px; color: var(--color-text-muted); text-align: center; margin-top: 8px; }
 
 /* Utility Classes */
