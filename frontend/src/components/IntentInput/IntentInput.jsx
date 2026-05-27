@@ -47,11 +47,11 @@ function ResultDisplay({ result, action }) {
     const hosts = nodes.filter(n => n.type === 'host').length
     return (
       <div className="bubble bubble-system">
-        <div className="result-header" style={{ color: '#2563eb' }}>
+        <div className="result-header" style={{ color: '#60a5fa' }}>
           <Network size={16} /> {result.message}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 5 }}>
-          {[['交换机', switches, '#2563eb'], ['主机', hosts, '#16a34a']].map(([l, v, c]) => (
+          {[['交换机', switches, '#60a5fa'], ['主机', hosts, '#34d399']].map(([l, v, c]) => (
             <div key={l} style={{ background: '#f8fafc', borderRadius: 6, padding: '6px 12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: c }}>{v}</div>
               <div style={{ fontSize: 11, color: '#64748b' }}>{l}</div>
@@ -67,13 +67,13 @@ function ResultDisplay({ result, action }) {
     const flows = result.data || {}
     return (
       <div className="bubble bubble-system">
-        <div className="result-header" style={{ color: '#2563eb' }}>
+        <div className="result-header" style={{ color: '#60a5fa' }}>
           <ArrowRightLeft size={16} /> {result.message}
         </div>
         <div style={{ marginTop: 5, display: 'flex', flexDirection: 'column', gap: 3 }}>
           {Object.entries(flows).map(([dpid, entries]) => (
             <div key={dpid} style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ color: '#2563eb', fontFamily: 'monospace' }}>dpid={dpid}</span>
+              <span style={{ color: '#60a5fa', fontFamily: 'monospace' }}>dpid={dpid}</span>
               <span style={{ color: '#64748b' }}>{entries.length} 条规则</span>
             </div>
           ))}
@@ -89,7 +89,7 @@ function ResultDisplay({ result, action }) {
   if (result.type === 'query_port_stats') {
     return (
       <div className="bubble bubble-system">
-        <div className="result-header" style={{ color: '#f6e05e' }}>
+        <div className="result-header" style={{ color: '#fbbf24' }}>
           <Activity size={16} /> {result.message}
         </div>
         <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 4 }}>
@@ -101,14 +101,14 @@ function ResultDisplay({ result, action }) {
 
   // 控制类操作成功结果
   const controlColors = {
-    block_traffic: '#ea580c',     // orange-600
-    allow_traffic: '#16a34a',     // green-600
-    rate_limit: '#d97706',        // amber-600
-    set_priority: '#059669',      // emerald-600
-    redirect_traffic: '#2563eb',  // blue-600
-    clear_flows: '#475569',       // slate-600
+    block_traffic: '#f97316',     // orange-500
+    allow_traffic: '#34d399',     // emerald-400
+    rate_limit: '#f59e0b',        // amber-500
+    set_priority: '#10b981',      // emerald-500
+    redirect_traffic: '#60a5fa',  // blue-400
+    clear_flows: '#64748b',       // slate-500
   }
-  const color = controlColors[result.type] || '#48bb78'
+  const color = controlColors[result.type] || '#34d399'
 
   return (
     <div className="bubble bubble-system">

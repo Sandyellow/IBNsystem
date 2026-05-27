@@ -6,19 +6,19 @@
   --color-border: #e2e8f0;
   --color-border-strong: #cbd5e1;
 
-  /* Indigo/Blue primary for a more professional tech look */
-  --color-primary: #4f46e5;
-  --color-primary-light: #e0e7ff;
-  --color-primary-dark: #4338ca;
+  /* Indigo/Blue primary - softened */
+  --color-primary: #6366f1;
+  --color-primary-light: #eef2ff;
+  --color-primary-dark: #4f46e5;
 
-  /* Adjusted semantic colors */
-  --color-success: #10b981;
+  /* Adjusted semantic colors - softer tones */
+  --color-success: #34d399;
   --color-success-light: #d1fae5;
-  --color-warning: #f59e0b;
+  --color-warning: #fbbf24;
   --color-warning-light: #fef3c7;
-  --color-danger: #ef4444;
+  --color-danger: #f87171;
   --color-danger-light: #fee2e2;
-  --color-info: #0ea5e9;
+  --color-info: #38bdf8;
   --color-info-light: #e0f2fe;
 
   --color-text-primary: #0f172a;
@@ -294,13 +294,13 @@ body { overflow: hidden; height: 100vh; }
   box-shadow: var(--shadow-sm);
 }
 .bubble-user {
-  background: linear-gradient(135deg, var(--color-primary) 0%, #6366f1 100%);
+  background: linear-gradient(135deg, var(--color-primary) 0%, #818cf8 100%);
   color: white;
   align-self: flex-end;
   border: none;
   font-weight: 500;
   border-bottom-right-radius: 4px;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
 }
 .bubble-system {
   background: #ffffff;
@@ -523,8 +523,8 @@ body { overflow: hidden; height: 100vh; }
 .topo-node-label { font-weight: 600; color: var(--color-text-primary); }
 .topo-node-ip { font-size: 10px; color: var(--color-text-muted); font-family: ui-monospace, SFMono-Regular, monospace; }
 
-.node-switch { border-color: #2563eb; }
-.node-switch .topo-node-label { color: #2563eb; }
+.node-switch { border-color: #60a5fa; }
+.node-switch .topo-node-label { color: #60a5fa; }
 .node-host { border-color: var(--color-success); }
 .node-host .topo-node-label { color: var(--color-success); }
 
@@ -706,8 +706,8 @@ body { overflow: hidden; height: 100vh; }
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #10b981;
-  box-shadow: 0 0 6px #10b981;
+  background-color: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
 }
 
 /* ─── 新组件追加样式 ─────────────────────────── */

@@ -12,7 +12,7 @@ import { Cpu, Server, Network } from 'lucide-react'
 // ─── 自定义节点 ──────────────────────────────────────
 function TopoNode({ data, selected }) {
   const isSwitch = data.type === 'switch'
-  const handleColor = isSwitch ? '#2563eb' : '#10b981'
+  const handleColor = isSwitch ? '#60a5fa' : '#34d399'
 
   return (
     <div className={`topo-node ${isSwitch ? 'node-switch' : 'node-host'} ${selected ? 'selected' : ''}`}>
@@ -31,7 +31,7 @@ function TopoNode({ data, selected }) {
       <Handle type="target" position={Position.Bottom} id="tb-center" style={{ left: '50%', width: 6, height: 6, opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} id="b-right"  style={{ left: '75%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="target" position={Position.Bottom} id="tb-right" style={{ left: '75%', width: 6, height: 6, opacity: 0 }} />
-      <span className="topo-node-icon">{isSwitch ? <Cpu size={20} color="#2563eb" /> : <Server size={20} color="#10b981" />}</span>
+      <span className="topo-node-icon">{isSwitch ? <Cpu size={20} color="#60a5fa" /> : <Server size={20} color="#34d399" />}</span>
       <span className="topo-node-label">{data.label}</span>
       {data.ip && <span className="topo-node-ip">{data.ip}</span>}
     </div>
@@ -163,10 +163,10 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
       animated: isActive,
       className: isActive ? 'edge-active-path' : '',
       style: {
-        stroke: '#b45309', // 不管激活与否，统一使用古铜橙色
+        stroke: '#d97706', // 更柔和的古铜橙色
         strokeWidth: isActive ? 2.5 : 1.5,
         strokeDasharray: '5,5', // 统一使用虚线连线
-        filter: isActive ? 'drop-shadow(0 0 5px rgba(180, 83, 9, 0.5))' : 'none', // 激活时辅以橙色微光阴影
+        filter: isActive ? 'drop-shadow(0 0 5px rgba(217, 119, 6, 0.4))' : 'none', // 激活时辅以橙色微光阴影
       },
       label: link.utilization_pct != null ? `${link.utilization_pct.toFixed(0)}%` : undefined,
     }
@@ -280,7 +280,7 @@ export default function NetworkTopology() {
             <Background color="#e2e8f0" gap={60} size={1} variant="lines" />
             <Controls showInteractive={false} />
             <MiniMap
-              nodeColor={n => n.data?.type === 'switch' ? '#6366f1' : '#16a34a'}
+              nodeColor={n => n.data?.type === 'switch' ? '#818cf8' : '#4ade80'}
               maskColor="rgba(248,250,252,0.8)"
               style={{ border: '1px solid #e2e8f0', borderRadius: 8 }}
             />
@@ -299,7 +299,7 @@ export default function NetworkTopology() {
             <div className="node-detail-overlay">
               <div className="node-detail-header">
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {selectedNode.type === 'switch' ? <Cpu size={14} color="#6366f1" /> : <Server size={14} color="#10b981" />}
+                  {selectedNode.type === 'switch' ? <Cpu size={14} color="#818cf8" /> : <Server size={14} color="#34d399" />}
                   {selectedNode.type === 'switch' ? '交换机详情' : '主机详情'}
                 </span>
                 <button className="btn-close" onClick={() => setSelectedNode(null)}>✕</button>
@@ -343,7 +343,7 @@ export default function NetworkTopology() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                           {nodeFlows.slice(0, 5).map((f, i) => (
                             <div key={i} style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'monospace', background: 'var(--color-bg-sidebar)', padding: '2px 6px', borderRadius: 4 }}>
-                              <span style={{ color: '#6366f1', minWidth: 30 }}>p={f.priority}</span>
+                              <span style={{ color: '#818cf8', minWidth: 30 }}>p={f.priority}</span>
                               <span style={{ color: 'var(--color-text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {Object.keys(f.match || {}).length === 0 ? 'ANY' : Object.entries(f.match).slice(0, 2).map(([k, v]) => {
                                   if ((k === 'dl_type' || k === 'eth_type')) {
