@@ -1,0 +1,24 @@
+{
+  "name": "ring",
+  "description": "环形拓扑 — 存在多路径，用于验证路径计算引擎",
+  "switches": [
+    {"name": "s1"},
+    {"name": "s2"},
+    {"name": "s3"}
+  ],
+  "hosts": [
+    {"name": "h1", "ip": "10.0.0.1/24"},
+    {"name": "h2", "ip": "10.0.0.2/24"},
+    {"name": "h3", "ip": "10.0.0.3/24"},
+    {"name": "h4", "ip": "10.0.0.4/24"}
+  ],
+  "links": [
+    {"src": "s1", "dst": "s2", "bw": 100, "delay": "1ms"},
+    {"src": "s1", "dst": "s3", "bw": 100, "delay": "1ms"},
+    {"src": "s2", "dst": "s3", "bw": 100, "delay": "1ms"},
+    {"src": "s2", "dst": "h1", "bw": 100, "delay": "1ms"},
+    {"src": "s2", "dst": "h2", "bw": 100, "delay": "1ms"},
+    {"src": "s3", "dst": "h3", "bw": 100, "delay": "1ms"},
+    {"src": "s3", "dst": "h4", "bw": 100, "delay": "1ms"}
+  ]
+}

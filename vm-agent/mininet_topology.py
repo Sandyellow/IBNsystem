@@ -150,7 +150,7 @@ def run(cli_mode=False):
         CLI(net)
         net.stop()
     else:
-        # 后台守护模式：保持进程存活，不再周期 pingAll（避免拓扑抖动）
+        # 后台模式：保持进程存活，不再周期 pingAll（避免拓扑抖动）
         info("[IBN] 网络运行中（后台模式）。按 Ctrl+C 停止。\n")
         while True:
             time.sleep(60)

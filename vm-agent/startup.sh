@@ -36,7 +36,6 @@ err()  { echo -e "${RED}[IBN]${NC} $1"; }
 # ── 清理旧进程 ────────────────────────────────────────
 log "清理旧进程..."
 pkill -f ryu-manager       2>/dev/null || true
-pkill -f "agent.py"   2>/dev/null || true
 pkill -f "mininet_topology"    2>/dev/null || true
 mn -c 2>/dev/null || true
 sleep 2
@@ -49,17 +48,9 @@ if [ -z "$RYU_BIN" ]; then
 fi
 log "找到 Ryu: $RYU_BIN"
 
-# ── 从 ryu_venv 推导 Python 路径（flask/requests 均在此 venv）──
-VENV_DIR="$(dirname "$(dirname "$RYU_BIN")")"
-AGENT_PYTHON="$VENV_DIR/bin/python3"
-if [ ! -x "$AGENT_PYTHON" ]; then
-    AGENT_PYTHON=$(which python3)
-fi
-log "Agent Python: $AGENT_PYTHON"
-
 # ── 找到有 mininet 模块的 Python ─────────────────────
 MININET_PYTHON=""
-for py in /usr/bin/python3 /usr/local/bin/python3 "$AGENT_PYTHON"; do
+for py in /usr/bin/python3 /usr/local/bin/python3 $(which python3); do
     if [ -x "$py" ] && "$py" -c "import mininet" 2>/dev/null; then
         MININET_PYTHON="$py"
         break
@@ -98,26 +89,11 @@ for i in $(seq 1 15); do
     sleep 1
 done
 
-# ── 步骤 2: 启动 VM Agent ─────────────────────────────
-log "启动 VM Agent..."
-nohup "$AGENT_PYTHON" "$SCRIPT_DIR/agent.py" \
-    > "$LOG_DIR/agent.log" 2>&1 &
-AGENT_PID=$!
-echo $AGENT_PID > "$LOG_DIR/agent.pid"
-sleep 2
-
-# 验证 Agent 是否启动
-if curl -s http://127.0.0.1:5000/ping > /dev/null 2>&1; then
-    log "VM Agent 已就绪 ✓"
-else
-    err "VM Agent 启动失败，查看日志: $LOG_DIR/agent.log"
-fi
-
+# ── 步骤 2: 启动 Mininet (前台 CLI 模式) ───────────────
 echo ""
 echo "════════════════════════════════════"
 log "IBN 系统服务已就绪！"
 echo "  Ryu    PID: $RYU_PID  日志: $LOG_DIR/ryu.log"
-echo "  Agent  PID: $AGENT_PID 日志: $LOG_DIR/agent.log"
 echo ""
 echo "  即将进入 Mininet 交互式 CLI (mininet>)"
 echo "  按 exit 退出 CLI 时将停止 Mininet 拓扑"
@@ -125,7 +101,6 @@ echo "  停止后台服务请执行: bash $SCRIPT_DIR/stop.sh"
 echo "════════════════════════════════════"
 echo ""
 
-# ── 步骤 3: 启动 Mininet (前台 CLI 模式) ───────────────
 log "启动 Mininet 拓扑 (前台 CLI 模式)..."
 EXTRA_ARGS=""
 if [ -n "$TOPO_CONFIG" ]; then

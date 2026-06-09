@@ -5,7 +5,6 @@ LOG_DIR="$SCRIPT_DIR/logs"
 
 echo "[IBN] 停止所有服务..."
 pkill -f ryu-manager     2>/dev/null && echo "  Ryu 已停止" || true
-pkill -f "agent.py" 2>/dev/null && echo "  Agent 已停止" || true
 pkill -f "mininet_topology"  2>/dev/null && echo "  Mininet 已停止" || true
 sudo mn -c 2>/dev/null && echo "  Mininet 环境已清理" || true
 rm -f "$LOG_DIR"/*.pid
