@@ -148,47 +148,60 @@ export default function PortStats() {
               <div className="port-switch-label" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
                 <Cpu size={14} color="#6366f1" /> 
                 <span style={{ flex: 1 }}>交换机 dpid={dpid}</span>
-                <span style={{ fontSize: 10, color: 'var(--color-text-muted)', fontWeight: 400 }}>单位: KB/s</span>
+
               </div>
               
               {history.length > 1 && (
-                <div style={{ height: 250, width: '100%', marginBottom: 16 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={history} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                      <XAxis dataKey="time" stroke="var(--color-text-muted)" fontSize={10} tickMargin={8} minTickGap={20} />
-                      <YAxis 
-                        stroke="var(--color-text-muted)" 
-                        fontSize={10} 
-                        tickCount={5} 
-                        width={35}
-                        tickFormatter={(val) => Number(val.toFixed(2))}
-                      />
-                      <RechartsTooltip 
-                        isAnimationActive={false} 
-                        position={{ y: -10 }}
-                        content={<CustomChartTooltip />} 
-                        cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1, strokeDasharray: '3 3' }} 
-                      />
-                      <Legend 
-                        wrapperStyle={{ paddingTop: 10, fontSize: 11, cursor: 'pointer' }}
-                        onClick={(e) => {
-                          if (e && e.dataKey) {
-                            const pNo = e.dataKey.split('_')[0]
-                            setHiddenPorts(prev => ({ ...prev, [pNo]: !prev[pNo] }))
-                          }
-                        }}
-                      />
-                      {validPorts.map((p, idx) => {
-                         const color = PORT_COLORS[idx % PORT_COLORS.length]
-                         const isHidden = hiddenPorts[p.port_no]
-                         return [
-                           <Line key={`rx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_rx`} name={`端口 ${p.port_no} RX`} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />,
-                           <Line key={`tx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_tx`} name={`端口 ${p.port_no} TX`} stroke={color} strokeDasharray="4 4" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />
-                         ]
-                      })}
-                    </LineChart>
-                  </ResponsiveContainer>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 16 }}>
+                  {/* RX Chart */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#48bb78', marginBottom: 4, marginLeft: 4 }}>↓ 入端口速率 (RX)</div>
+                    <div style={{ height: 260, width: '100%' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={history} margin={{ top: 28, right: 5, left: -15, bottom: 5 }} style={{ outline: 'none' }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                          <XAxis dataKey="time" stroke="var(--color-text-muted)" fontSize={10} tickMargin={8} minTickGap={20} />
+                          <YAxis 
+                            stroke="var(--color-text-muted)" fontSize={10} tickCount={5} width={32}
+                            domain={[0, (dataMax) => Math.max(10, dataMax)]}
+                            tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)} M` : Number(val.toFixed(2))}
+                          />
+                          <RechartsTooltip isAnimationActive={false} animationDuration={0} position={{ y: -5 }} content={<CustomChartTooltip />} cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                          <Legend wrapperStyle={{ paddingTop: 10, fontSize: 11, cursor: 'pointer' }} onClick={(e) => { if (e && e.dataKey) setHiddenPorts(prev => ({ ...prev, [e.dataKey.split('_')[0]]: !prev[e.dataKey.split('_')[0]] })) }} />
+                          {validPorts.map((p, idx) => {
+                             const color = PORT_COLORS[idx % PORT_COLORS.length]
+                             const isHidden = hiddenPorts[p.port_no]
+                             return <Line key={`rx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_rx`} name={`端口 ${p.port_no} RX`} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />
+                          })}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* TX Chart */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#63b3ed', marginBottom: 4, marginLeft: 4 }}>↑ 出端口速率 (TX)</div>
+                    <div style={{ height: 260, width: '100%' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={history} margin={{ top: 28, right: 5, left: -15, bottom: 5 }} style={{ outline: 'none' }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                          <XAxis dataKey="time" stroke="var(--color-text-muted)" fontSize={10} tickMargin={8} minTickGap={20} />
+                          <YAxis 
+                            stroke="var(--color-text-muted)" fontSize={10} tickCount={5} width={32}
+                            domain={[0, (dataMax) => Math.max(10, dataMax)]}
+                            tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)} M` : Number(val.toFixed(2))}
+                          />
+                          <RechartsTooltip isAnimationActive={false} animationDuration={0} position={{ y: -5 }} content={<CustomChartTooltip />} cursor={{ stroke: 'var(--color-border-strong)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                          <Legend wrapperStyle={{ paddingTop: 10, fontSize: 11, cursor: 'pointer' }} onClick={(e) => { if (e && e.dataKey) setHiddenPorts(prev => ({ ...prev, [e.dataKey.split('_')[0]]: !prev[e.dataKey.split('_')[0]] })) }} />
+                          {validPorts.map((p, idx) => {
+                             const color = PORT_COLORS[idx % PORT_COLORS.length]
+                             const isHidden = hiddenPorts[p.port_no]
+                             return <Line key={`tx_${p.port_no}`} type="monotone" dataKey={`${p.port_no}_tx`} name={`端口 ${p.port_no} TX`} stroke={color} strokeDasharray="4 4" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} isAnimationActive={false} hide={isHidden} strokeOpacity={0.8} />
+                          })}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -213,19 +226,18 @@ const CustomChartTooltip = ({ active, payload, label }) => {
     payload.forEach(item => {
       const pNo = item.dataKey.split('_')[0]
       const type = item.dataKey.split('_')[1] // 'rx' or 'tx'
-      if (!ports[pNo]) ports[pNo] = { rx: 0, tx: 0, color: item.color }
+      if (!ports[pNo]) ports[pNo] = { color: item.color }
       ports[pNo][type] = item.value
     })
 
     return (
-      <div style={{ pointerEvents: 'none', background: 'rgba(255,255,255,0.95)', border: '1px solid var(--color-border)', borderRadius: 6, padding: '6px 8px', fontSize: 11, boxShadow: 'var(--shadow-md)', zIndex: 100 }}>
-        <div style={{ color: 'var(--color-text-muted)', marginBottom: 6 }}>{label}</div>
+      <div style={{ pointerEvents: 'none', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--color-text-primary)' }}>
         {Object.entries(ports).map(([pNo, data]) => (
-          <div key={pNo} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <div key={pNo} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: data.color, flexShrink: 0 }} />
-            <span style={{ width: 32, fontWeight: 500, color: 'var(--color-text-primary)', flexShrink: 0 }}>端口 {pNo}</span>
-            <span style={{ width: 72, color: '#48bb78', flexShrink: 0 }}>↓ {Number(data.rx).toFixed(2)} KB/s</span>
-            <span style={{ width: 72, color: '#63b3ed', flexShrink: 0 }}>↑ {Number(data.tx).toFixed(2)} KB/s</span>
+            <span style={{ fontWeight: 600 }}>
+              {data.rx !== undefined ? `P${pNo}: ↓ ${data.rx >= 1000 ? (data.rx/1000).toFixed(2)+'M' : Number(data.rx).toFixed(1)+'K'}` : `P${pNo}: ↑ ${data.tx >= 1000 ? (data.tx/1000).toFixed(2)+'M' : Number(data.tx).toFixed(1)+'K'}`}
+            </span>
           </div>
         ))}
       </div>

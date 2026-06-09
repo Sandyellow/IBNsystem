@@ -874,3 +874,13 @@ body { overflow: hidden; height: 100vh; }
   min-height: 0;
 }
 
+/* Remove all focus outlines and CSS transitions from Recharts components globally */
+.recharts-wrapper, 
+.recharts-wrapper *, 
+.recharts-surface {
+  outline: none !important;
+}
+
+.recharts-tooltip-wrapper {
+  transition: transform 0ms !important;
+}

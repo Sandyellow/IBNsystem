@@ -10,8 +10,8 @@ from core.topo_manager import topo_manager
 
 logger = logging.getLogger(__name__)
 
-# 保存每个交换机（dpid 字符串）的历史速率数据点，保留最近 60 个点（约 3 分钟）
-MAX_HISTORY_LEN = 60
+# 保存每个交换机（dpid 字符串）的历史速率数据点，保留最近 40 个点（约 2 分钟，轮询间隔 3s）
+MAX_HISTORY_LEN = 40
 
 class StatsManager:
     def __init__(self):
@@ -74,9 +74,9 @@ class StatsManager:
                                 else:
                                     rx_rate = 0
                                     tx_rate = 0
-                                # 转换为 KB/s 并保留一位小数
-                                point_data[f"{port_no}_rx"] = round(rx_rate / 1024, 1)
-                                point_data[f"{port_no}_tx"] = round(tx_rate / 1024, 1)
+                                # 转换为 Kb/s 并保留三位小数 (Kilobits per second) 以平滑曲线
+                                point_data[f"{port_no}_rx"] = round((rx_rate * 8) / 1000, 3)
+                                point_data[f"{port_no}_tx"] = round((tx_rate * 8) / 1000, 3)
                             else:
                                 point_data[f"{port_no}_rx"] = 0
                                 point_data[f"{port_no}_tx"] = 0

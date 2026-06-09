@@ -114,47 +114,6 @@ function TopoInfo() {
         </div>
       )}
 
-      {/* 链路列表 */}
-      {links.length > 0 && (
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 700 }}>链路</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {links.map(l => (
-              <div key={l.id} style={{
-                background: '#ffffff',
-                border: '1px solid var(--color-border-strong)',
-                borderRadius: 8,
-                padding: '10px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                fontSize: 14,
-                boxShadow: 'var(--shadow-sm)',
-              }}>
-                <Network size={18} color="#f59e0b" style={{ marginTop: 2, flexShrink: 0 }} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 800, color: 'var(--color-text-primary)', fontSize: 14 }}>
-                      {l.source} <ArrowRightLeft size={12} style={{ margin: '0 4px', display: 'inline', verticalAlign: '-2px' }} /> {l.target}
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: l.state === 'down' ? '#ef4444' : '#10b981' }}>
-                      {l.state === 'down' ? 'DOWN' : 'UP'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    <span>带宽: <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace', fontWeight: 500 }}>{l.bandwidth_mbps || 100} Mbps</span></span>
-                    {l.utilization_pct != null ? (
-                      <span>使用率: <span style={{ fontWeight: 600, color: l.utilization_pct > 80 ? '#ef4444' : l.utilization_pct > 50 ? '#f59e0b' : '#10b981' }}>{l.utilization_pct.toFixed(1)}%</span></span>
-                    ) : (
-                      <span>使用率: <span style={{ fontWeight: 600, color: '#10b981' }}>0.0%</span></span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {nodes.length === 0 && (
         <div style={{
