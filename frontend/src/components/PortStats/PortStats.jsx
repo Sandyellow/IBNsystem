@@ -158,11 +158,11 @@ export default function PortStats() {
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#48bb78', marginBottom: 4, marginLeft: 4 }}>↓ 入端口速率 (RX)</div>
                     <div style={{ height: 260, width: '100%' }}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={history} margin={{ top: 28, right: 5, left: -15, bottom: 5 }} style={{ outline: 'none' }}>
+                        <LineChart data={history} margin={{ top: 28, right: 5, left: -10, bottom: 5 }} style={{ outline: 'none' }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                           <XAxis dataKey="time" stroke="var(--color-text-muted)" fontSize={10} tickMargin={8} minTickGap={20} />
                           <YAxis 
-                            stroke="var(--color-text-muted)" fontSize={10} tickCount={5} width={32}
+                            stroke="var(--color-text-muted)" fontSize={10} tickCount={5}
                             domain={[0, (dataMax) => Math.max(10, dataMax)]}
                             tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)} M` : Number(val.toFixed(2))}
                           />
@@ -183,11 +183,11 @@ export default function PortStats() {
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#63b3ed', marginBottom: 4, marginLeft: 4 }}>↑ 出端口速率 (TX)</div>
                     <div style={{ height: 260, width: '100%' }}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={history} margin={{ top: 28, right: 5, left: -15, bottom: 5 }} style={{ outline: 'none' }}>
+                        <LineChart data={history} margin={{ top: 28, right: 5, left: -10, bottom: 5 }} style={{ outline: 'none' }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                           <XAxis dataKey="time" stroke="var(--color-text-muted)" fontSize={10} tickMargin={8} minTickGap={20} />
                           <YAxis 
-                            stroke="var(--color-text-muted)" fontSize={10} tickCount={5} width={32}
+                            stroke="var(--color-text-muted)" fontSize={10} tickCount={5}
                             domain={[0, (dataMax) => Math.max(10, dataMax)]}
                             tickFormatter={(val) => val >= 1000 ? `${(val / 1000).toFixed(1)} M` : Number(val.toFixed(2))}
                           />
@@ -231,7 +231,7 @@ const CustomChartTooltip = ({ active, payload, label }) => {
     })
 
     return (
-      <div style={{ pointerEvents: 'none', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--color-text-primary)' }}>
+      <div style={{ pointerEvents: 'none', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 12px', fontSize: 11, color: 'var(--color-text-primary)' }}>
         {Object.entries(ports).map(([pNo, data]) => (
           <div key={pNo} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: data.color, flexShrink: 0 }} />

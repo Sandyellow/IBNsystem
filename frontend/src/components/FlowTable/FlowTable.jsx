@@ -14,8 +14,8 @@ const ACTION_LABELS = {
 function formatAction(action) {
   if (!action) return '-'
   if (typeof action === 'string') {
-    if (action === 'OUTPUT:CONTROLLER') return '→ 控制器 (Controller)'
-    if (action.startsWith('OUTPUT:')) return `→ 端口 ${action.split(':')[1]}`
+    if (action === 'OUTPUT:CONTROLLER') return '↑ 上送控制器'
+    if (action.startsWith('OUTPUT:')) return `→ 转发至端口 ${action.split(':')[1]}`
     return action
   }
   const t = (action.type || '').toUpperCase()
