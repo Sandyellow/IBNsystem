@@ -41,36 +41,48 @@ tools = [get_node_location, get_active_policies]
 llm_with_tools = llm.bind_tools(tools + [ParsedIntent])
 
 # 核心 Agent 节点
-def agent_node(state: IBNState):
+async def agent_node(state: IBNState):
     messages = state["messages"]
-    
-    # 获取原始用户输入
+    # 提取初始用户输入作为参考（如果需要）
     user_request = messages[0].content if messages else ""
-    
-    # 提取历史工具调用结果
-    history_text = ""
-    for msg in messages:
-        if isinstance(msg, AIMessage) and msg.tool_calls:
-            for tc in msg.tool_calls:
-                history_text += f"\n[Agent调用工具]: {tc['name']} (参数: {tc['args']})"
-        elif isinstance(msg, ToolMessage):
-            history_text += f"\n[工具执行结果]: {msg.content}"
 
-    # 强制加上 System Prompt
-    system_prompt = f"""你是一个 SDN 网络控制助手。用户的自然语言将被你解析为结构化网络策略。
+    # System Prompt 定义
+    system_prompt = """你是一个 SDN 网络控制助手。用户的自然语言将被你解析为结构化网络策略。
 遇到未知节点，必须调用 get_node_location 工具。
 当要下发新策略前，必须调用 get_active_policies 工具检查语义冲突。
 如果一切检查通过，或者你已经得出了结论，请调用 ParsedIntent 工具输出最终结果。
 """
-    if history_text:
-        system_prompt += f"\n\n历史调用记录（供参考，不要重复调用已成功获取信息的工具）：{history_text}"
+    from langchain_core.messages import SystemMessage, AIMessage
+    
+    # 消息清理：保留完整历史，但清理掉一些大模型 API 可能不兼容的额外参数（如 reasoning_content）
+    safe_messages = [SystemMessage(content=system_prompt)]
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            # 创建新的 AIMessage 以防污染原始状态
+            safe_msg = AIMessage(
+                content=msg.content, 
+                tool_calls=msg.tool_calls,
+                additional_kwargs={k: v for k, v in msg.additional_kwargs.items() if k != "reasoning_content"}
+            )
+            safe_messages.append(safe_msg)
+        else:
+            safe_messages.append(msg)
 
-    from langchain_core.messages import SystemMessage, HumanMessage
-    # 每次仅发送 System + User，彻底绕过大模型 API 对历史 AIMessage 的严格校验（如 reasoning_content 问题）
-    safe_messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_request)]
+    # 引入 asyncio 处理超时（例如限制 LLM 单次思考最长 20 秒）
+    import asyncio
+    try:
+        # 使用 asyncio.wait_for 进行超时控制
+        response = await asyncio.wait_for(llm_with_tools.ainvoke(safe_messages), timeout=20.0)
+    except asyncio.TimeoutError:
+        logger.error("[Workflow] LLM 响应超时")
+        # 构造一个假的 ToolCall 去执行失败路线，或者直接返回错误消息
+        from langchain_core.messages import AIMessage
+        from models.intent import ParsedIntent
+        # 伪造一个由于超时导致的解析失败结果
+        return {"messages": [AIMessage(content="[System] 请求大模型超时，请重试。")]}
 
-    response = llm_with_tools.invoke(safe_messages)
     return {"messages": [response]}
+
 
 
 # 路由逻辑

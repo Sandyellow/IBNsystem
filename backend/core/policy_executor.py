@@ -160,9 +160,8 @@ class PolicyExecutor:
         cookie = _make_cookie(intent_id)
         dpids = topo_manager.get_all_switch_dpids()
 
-        installed, errors = [], []
-        for dpid in dpids:
-            # 双向 DROP 规则（高优先级 500，覆盖 L2 学习交换机的 priority=1 规则）
+        import asyncio
+        async def deploy_to_switch(dpid):
             ok1 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
@@ -177,14 +176,18 @@ class PolicyExecutor:
                 "match": {"eth_src": dst_mac, "eth_dst": src_mac},
                 "actions": [],
             })
-            sw_name = f"s{dpid}"
-            if ok1 and ok2:
-                installed.append(sw_name)
-            else:
-                errors.append(sw_name)
+            return dpid if (ok1 and ok2) else None
 
-        if not installed:
-            return {"success": False, "error": f"所有交换机下发失败: {errors}"}
+        results = await asyncio.gather(*(deploy_to_switch(d) for d in dpids))
+        installed_dpids = [r for r in results if r is not None]
+        errors = [d for r, d in zip(results, dpids) if r is None]
+
+        if errors:
+            logger.warning(f"[_block_traffic] 发现失败，开始执行 Rollback: 清除 {installed_dpids} 上的脏流表 (cookie={cookie})")
+            await asyncio.gather(*(ryu_client.delete_flow_by_cookie(d, cookie) for d in installed_dpids))
+            return {"success": False, "error": f"下发失败 (失败列表: {errors})，系统已安全回滚"}
+
+        installed = [f"s{d}" for d in installed_dpids]
 
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
@@ -377,8 +380,8 @@ class PolicyExecutor:
         cookie = _make_cookie(intent_id)
         dpids = topo_manager.get_all_switch_dpids()
 
-        installed = []
-        for dpid in dpids:
+        import asyncio
+        async def deploy_to_switch(dpid):
             ok1 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
@@ -386,7 +389,6 @@ class PolicyExecutor:
                 "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
                 "actions": [{"type": "OUTPUT", "port": "NORMAL"}],
             })
-            # 双向下发：保证 OVS NORMAL 机制能学习到反向 MAC，避免未知单播全网泛洪
             ok2 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
@@ -394,11 +396,18 @@ class PolicyExecutor:
                 "match": {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac},
                 "actions": [{"type": "OUTPUT", "port": "NORMAL"}],
             })
-            if ok1 and ok2:
-                installed.append(f"s{dpid}")
+            return dpid if (ok1 and ok2) else None
 
-        if not installed:
-            return {"success": False, "error": "所有交换机下发失败"}
+        results = await asyncio.gather(*(deploy_to_switch(d) for d in dpids))
+        installed_dpids = [r for r in results if r is not None]
+        errors = [d for r, d in zip(results, dpids) if r is None]
+
+        if errors:
+            logger.warning(f"[_set_priority] 发现失败，开始执行 Rollback: 清除 {installed_dpids} 上的脏流表 (cookie={cookie})")
+            await asyncio.gather(*(ryu_client.delete_flow_by_cookie(d, cookie) for d in installed_dpids))
+            return {"success": False, "error": f"下发失败 (失败列表: {errors})，系统已安全回滚"}
+
+        installed = [f"s{d}" for d in installed_dpids]
 
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,

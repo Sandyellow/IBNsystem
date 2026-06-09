@@ -25,12 +25,17 @@ class WebSocketManager:
         if not self._connections:
             return
         text = json.dumps(message, ensure_ascii=False)
-        dead = set()
-        for ws in self._connections.copy():
+        
+        import asyncio
+        async def send(ws):
             try:
                 await ws.send_text(text)
+                return None
             except Exception:
-                dead.add(ws)
+                return ws
+                
+        results = await asyncio.gather(*(send(ws) for ws in self._connections.copy()))
+        dead = {ws for ws in results if ws is not None}
         for ws in dead:
             self._connections.discard(ws)
 
