@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ReactFlow, Background, Controls, MiniMap,
   useNodesState, useEdgesState, MarkerType,
-  Handle, Position,
+  Handle, Position, BaseEdge, EdgeLabelRenderer, getStraightPath
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import useStore from '../../store/useStore'
 import api from '../../services/api'
-import { Cpu, Server, Network } from 'lucide-react'
+import { Cpu, Server, Network, EthernetPort } from 'lucide-react'
 import * as d3 from 'd3-force'
 
 // ─── 自定义节点 ──────────────────────────────────────
@@ -28,6 +28,112 @@ function TopoNode({ data, selected }) {
 }
 
 const nodeTypes = { topoNode: TopoNode }
+
+function PortEdge({ id, sourceX, sourceY, targetX, targetY, style, markerEnd, data }) {
+  const [edgePath] = getStraightPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+  });
+
+  const formatPort = (p) => {
+    if (p == null) return '';
+    const num = parseInt(p, 16);
+    return isNaN(num) ? String(p).replace(/^0+/, '') : String(num);
+  };
+
+  const p1 = formatPort(data.srcPort);
+  const p2 = formatPort(data.dstPort);
+  
+  if (!p1 && !p2) {
+    return <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />;
+  }
+
+  // 椭圆相交算法计算贴边位置 (精确避开节点框)
+  // 增加 a, b 和 padding，确保彻底推到节点的外侧，避免与节点阴影或边框重叠
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = dx / len;
+  const ny = dy / len;
+
+  // 使用偏大一点的包围盒，确保完全包住节点及阴影
+  const a = 75; 
+  const b = 45; 
+  const scale = 1 / Math.sqrt((dx * dx) / (a * a) + (dy * dy) / (b * b));
+  
+  // padding: 中心点从相交处继续向外延伸的安全距离 (24px，抵消掉标签自身的尺寸)
+  // 当线太短导致重叠时，最大不超过线长的一半减去15px
+  const maxAllowed = (len / 2) - 15;
+  const actualDist = Math.min((len * scale) + 24, maxAllowed > 0 ? maxAllowed : 0);
+
+  const srcLabelX = sourceX + nx * actualDist;
+  const srcLabelY = sourceY + ny * actualDist;
+  
+  const dstLabelX = targetX - nx * actualDist;
+  const dstLabelY = targetY - ny * actualDist;
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      <EdgeLabelRenderer>
+        {p1 && (
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${srcLabelX}px,${srcLabelY}px)`,
+              background: 'rgba(255, 255, 255, 0.95)',
+              padding: '2px 6px',
+              borderRadius: '6px',
+              fontSize: '10px',
+              fontWeight: 700,
+              color: '#475569',
+              border: '1px solid #cbd5e1',
+              pointerEvents: 'none',
+              backdropFilter: 'blur(2px)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3px'
+            }}
+            className="nodrag nopan"
+          >
+            <EthernetPort size={10} style={{ color: '#94a3b8' }} />
+            <span>{p1}</span>
+          </div>
+        )}
+        {p2 && (
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${dstLabelX}px,${dstLabelY}px)`,
+              background: 'rgba(255, 255, 255, 0.95)',
+              padding: '2px 6px',
+              borderRadius: '6px',
+              fontSize: '10px',
+              fontWeight: 700,
+              color: '#475569',
+              border: '1px solid #cbd5e1',
+              pointerEvents: 'none',
+              backdropFilter: 'blur(2px)',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3px'
+            }}
+            className="nodrag nopan"
+          >
+            <EthernetPort size={10} style={{ color: '#94a3b8' }} />
+            <span>{p2}</span>
+          </div>
+        )}
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes = { portEdge: PortEdge }
 
 // ─── 智能自动布局算法 (d3-force) ─────────────────────────────────────
 function toFlowNodes(nodes, links = []) {
@@ -76,7 +182,7 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
       target: tId,
       sourceHandle: 'center-source',
       targetHandle: 'center-target',
-      type: 'straight',
+      type: 'portEdge',
       animated: isActive,
       className: isActive ? 'edge-active-path' : '',
       style: {
@@ -85,7 +191,12 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
         strokeDasharray: '5,5', // 统一使用虚线连线
         filter: isActive ? 'drop-shadow(0 0 5px rgba(217, 119, 6, 0.4))' : 'none', // 激活时辅以橙色微光阴影
       },
-      label: link.utilization_pct != null ? `${link.utilization_pct.toFixed(0)}%` : undefined,
+      data: {
+        srcPort: link.src_port,
+        dstPort: link.dst_port,
+        srcLabel: sourceNode?.data?.label || sId,
+        dstLabel: targetNode?.data?.label || tId,
+      }
     }
   })
 }
@@ -188,6 +299,7 @@ export default function NetworkTopology() {
             onNodeClick={(_, node) => setSelectedNode(node.data)}
             onPaneClick={() => setSelectedNode(null)}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.25 }}
             minZoom={0.2}
