@@ -121,143 +121,162 @@
   text-align: center;
 }
 
-/* ─── 卡片流表样式 (取代旧表格) ─── */
+/* ─── 卡片流表样式 (优化高级UI) ─── */
 .flow-card-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .fc-card {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  transition: var(--transition);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
 }
 .fc-card:hover {
-  border-color: var(--color-border-strong);
-  box-shadow: var(--shadow-sm);
+  border-color: rgba(99, 102, 241, 0.4);
 }
 .fc-card.custom {
-  background: rgba(99, 179, 237, 0.05);
-  border-color: rgba(99, 179, 237, 0.3);
+  background: linear-gradient(135deg, #f8fbff 0%, transparent 100%);
+  border-color: #d2e3fc;
 }
 
 .fc-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2px;
+  margin-bottom: 8px;
 }
 
 .fc-priority {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.02em;
 }
 .fc-priority.high {
-  color: #1d4ed8; /* blue-700 */
+  background: #e8f0fe;
+  color: #1a73e8;
 }
 .fc-priority.low {
-  color: #64748b; /* slate-500 */
+  background: #f1f3f4;
+  color: #5f6368;
 }
 
 .fc-header-right {
   display: flex;
-  gap: 8px;
+  gap: 12px;
 }
 .fc-meta {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11px;
-  color: var(--color-text-muted);
+  color: #9aa0a6;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .fc-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .fc-row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
 }
 
 .fc-label {
-  font-size: 12px;
-  color: #94a3b8; /* slate-400 */
-  font-weight: 500;
+  font-size: 11px;
+  color: #80868b;
+  font-weight: 700;
   width: 32px;
   flex-shrink: 0;
+  padding-top: 4px;
+  letter-spacing: 0.05em;
 }
 
 .fc-matches {
   display: flex;
-  gap: 4px;
-  flex-direction: column;
-  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .fc-match-tag {
-  font-size: 12px;
+  font-size: 11px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  background: #f8f9fa;
+  border: 1px solid #dadce0;
+  border-radius: 16px;
+  padding: 3px 10px;
   white-space: nowrap;
 }
 .fc-match-label {
-  color: #64748b; /* slate-500 */
-  font-weight: 400;
+  color: #5f6368;
 }
 .fc-match-value {
-  color: #0f172a; /* slate-900 */
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-weight: 600;
+  color: #202124;
+  font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 700;
 }
 
 .fc-actions {
   display: flex;
-  gap: 4px;
-  flex-direction: column;
-  align-items: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .fc-action-tag {
-  color: #15803d; /* green-700 */
-  font-size: 12px;
+  color: #137333;
+  background: #e6f4ea;
+  border: 1px solid #ceead6;
+  padding: 3px 10px;
+  border-radius: 16px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
 }
 .fc-action-drop {
-  color: #b91c1c; /* red-700 */
-  font-size: 12px;
-  font-weight: 800;
+  color: #c5221f;
+  background: #fce8e6;
+  border: 1px solid #fad2cf;
+  padding: 3px 10px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .fc-footer {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
 }
 
 .fc-stat {
   font-size: 11px;
-  color: var(--color-text-muted);
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .fc-stat-val {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-weight: 600;
+  font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 700;
+  font-size: 12px;
   color: var(--color-text-primary);
 }
-.fc-stat-sep {
-  width: 1px;
-  height: 10px;
-  background: var(--color-border);
-}
+

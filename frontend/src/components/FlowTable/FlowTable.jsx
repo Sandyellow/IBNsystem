@@ -149,7 +149,6 @@ function FlowCard({ flow, isCustom }) {
         <div className="fc-stat">
           <span className="fc-stat-val">{(flow.packet_count || 0).toLocaleString()}</span> pkts
         </div>
-        <div className="fc-stat-sep" />
         <div className="fc-stat">
           <span className="fc-stat-val">{formatBytes(flow.byte_count || 0)}</span>
         </div>
