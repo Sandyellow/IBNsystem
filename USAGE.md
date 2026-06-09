@@ -87,7 +87,7 @@ cd .\backend
 
 **终端 2 — 启动前端：**
 ```powershell
-cd .\DevelopmentProjects\AskAnything\frontend
+cd .\frontend
 npm run dev
 ```
 
