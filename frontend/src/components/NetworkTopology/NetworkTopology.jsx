@@ -8,6 +8,7 @@ import '@xyflow/react/dist/style.css'
 import useStore from '../../store/useStore'
 import api from '../../services/api'
 import { Cpu, Server, Network } from 'lucide-react'
+import * as d3 from 'd3-force'
 
 // ─── 自定义节点 ──────────────────────────────────────
 function TopoNode({ data, selected }) {
@@ -16,6 +17,10 @@ function TopoNode({ data, selected }) {
 
   return (
     <div className={`topo-node ${isSwitch ? 'node-switch' : 'node-host'} ${selected ? 'selected' : ''}`}>
+      {/* 隐藏的中心端口用于无向图的自适应连线 */}
+      <Handle type="target" position={Position.Top} id="center-target" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0, zIndex: -1 }} />
+      <Handle type="source" position={Position.Bottom} id="center-source" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0, zIndex: -1 }} />
+
       {/* 顶部端口 (Target + Source 叠加) */}
       <Handle type="target" position={Position.Top} id="t-left"   style={{ left: '25%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
       <Handle type="source" position={Position.Top} id="st-left"  style={{ left: '25%', width: 6, height: 6, opacity: 0 }} />
@@ -40,75 +45,33 @@ function TopoNode({ data, selected }) {
 
 const nodeTypes = { topoNode: TopoNode }
 
-// ─── 智能树状分层布局算法 ─────────────────────────────────────
+// ─── 智能自动布局算法 (d3-force) ─────────────────────────────────────
 function toFlowNodes(nodes, links = []) {
-  const switches = nodes.filter(n => n.type === 'switch')
-  const hosts    = nodes.filter(n => n.type === 'host')
-  const result   = []
+  if (!nodes || nodes.length === 0) return []
 
-  const cx = 450 // 画布中心X
+  const simulationNodes = nodes.map(n => ({ ...n, id: String(n.id) }))
+  const simulationLinks = links.map(l => ({
+    source: String(l.source),
+    target: String(l.target),
+    id: l.id
+  }))
 
-  // 1. 寻找核心交换机（连接数最多，或默认 s1）
-  let coreSw = switches.find(s => s.id === 's1') || switches[0]
-  const edgeSwitches = switches.filter(s => s !== coreSw)
+  const simulation = d3.forceSimulation(simulationNodes)
+    .force('link', d3.forceLink(simulationLinks).id(d => d.id).distance(120))
+    .force('charge', d3.forceManyBody().strength(-800))
+    .force('center', d3.forceCenter(400, 300))
+    .force('collide', d3.forceCollide().radius(60))
 
-  // 核心层 Y=120
-  if (coreSw) {
-    result.push({
-      id: coreSw.id,
-      type: 'topoNode',
-      position: { x: cx - 60, y: 120 }, // 减去节点半宽居中
-      data: { ...coreSw },
-    })
+  for (let i = 0; i < 300; i++) {
+    simulation.tick()
   }
 
-  // 2. 边缘层 Y=280
-  // 计算边缘交换机的 X 坐标分布
-  const edgeY = 280
-  const edgeWidth = 360 // 边缘交换机跨度
-  const startX = cx - edgeWidth / 2
-
-  edgeSwitches.forEach((sw, i) => {
-    const swX = edgeSwitches.length === 1 ? cx - 60 : startX + (i / (edgeSwitches.length - 1)) * edgeWidth - 60
-    result.push({
-      id: sw.id,
-      type: 'topoNode',
-      position: { x: swX, y: edgeY },
-      data: { ...sw },
-    })
-
-    // 3. 接入层（主机层） Y=440
-    // 查找连接到当前边缘交换机的主机
-    const connectedHosts = hosts.filter(h => 
-      links.some(l => (l.source === h.id && l.target === sw.id) || (l.target === h.id && l.source === sw.id))
-    )
-
-    const hostSpan = 160 // 每个交换机下主机的分布宽度
-    const hStartX = swX + 60 - (connectedHosts.length - 1) * (hostSpan / 2)
-
-    connectedHosts.forEach((h, hi) => {
-      result.push({
-        id: h.id,
-        type: 'topoNode',
-        position: { x: hStartX + hi * hostSpan - 60, y: 440 },
-        data: { ...h },
-      })
-    })
-  })
-
-  // 处理未关联到边缘交换机的孤立主机或直连核心的主机
-  const allocatedHostIds = new Set(result.filter(n => n.data.type === 'host').map(n => n.id))
-  const remainingHosts = hosts.filter(h => !allocatedHostIds.has(h.id))
-  remainingHosts.forEach((h, i) => {
-    result.push({
-      id: h.id,
-      type: 'topoNode',
-      position: { x: cx - 200 + i * 120 - 60, y: 440 },
-      data: { ...h },
-    })
-  })
-
-  return result
+  return simulationNodes.map(n => ({
+    id: n.id,
+    type: 'topoNode',
+    position: { x: n.x - 60, y: n.y - 30 },
+    data: { ...n },
+  }))
 }
 
 
@@ -116,40 +79,10 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
   const nodeMap = Object.fromEntries(flowNodes.map(n => [n.id, n]))
 
   return links.map(link => {
-    const sId = String(link.source)
-    const tId = String(link.target)
+    const sId = String(link.source.id || link.source)
+    const tId = String(link.target.id || link.target)
     const sourceNode = nodeMap[sId]
     const targetNode = nodeMap[tId]
-
-    // 智能端口分配：根据目标节点的相对位置选择左、中、右端口，并判断上下方向
-    let sHandle = 'b-center'
-    let tHandle = 't-center'
-
-    if (sourceNode && targetNode) {
-      const isUpward = sourceNode.position.y > targetNode.position.y
-      const dx = targetNode.position.x - sourceNode.position.x
-      
-      // 判断左右关系
-      let hPosSrc = 'center'
-      if (dx < -40) hPosSrc = 'left'
-      else if (dx > 40) hPosSrc = 'right'
-
-      let hPosDst = 'center'
-      if (dx < -40) hPosDst = 'right'
-      else if (dx > 40) hPosDst = 'left'
-
-      // 判断上下关系
-      if (isUpward) {
-        // 目标在上方（例如 主机 -> 交换机）：源用 Top，目标用 Bottom
-        // 必须使用正确的叠加 Handle ID 避免类型错误
-        sHandle = `st-${hPosSrc}`
-        tHandle = `tb-${hPosDst}`
-      } else {
-        // 目标在下方（例如 交换机 -> 主机）：源用 Bottom，目标用 Top
-        sHandle = `b-${hPosSrc}`
-        tHandle = `t-${hPosDst}`
-      }
-    }
 
     const isActive = activePathEdges.includes(link.id)
 
@@ -157,9 +90,9 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
       id: link.id,
       source: sId,
       target: tId,
-      sourceHandle: sHandle,
-      targetHandle: tHandle,
-      type: 'smoothstep',
+      sourceHandle: 'center-source',
+      targetHandle: 'center-target',
+      type: 'straight',
       animated: isActive,
       className: isActive ? 'edge-active-path' : '',
       style: {
