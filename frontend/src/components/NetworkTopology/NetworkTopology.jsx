@@ -21,24 +21,8 @@ function TopoNode({ data, selected }) {
       <Handle type="target" position={Position.Top} id="center-target" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0, zIndex: -1 }} />
       <Handle type="source" position={Position.Bottom} id="center-source" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0, zIndex: -1 }} />
 
-      {/* 顶部端口 (Target + Source 叠加) */}
-      <Handle type="target" position={Position.Top} id="t-left"   style={{ left: '25%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
-      <Handle type="source" position={Position.Top} id="st-left"  style={{ left: '25%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="target" position={Position.Top} id="t-center" style={{ left: '50%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
-      <Handle type="source" position={Position.Top} id="st-center" style={{ left: '50%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="target" position={Position.Top} id="t-right"  style={{ left: '75%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
-      <Handle type="source" position={Position.Top} id="st-right" style={{ left: '75%', width: 6, height: 6, opacity: 0 }} />
-
-      {/* 底部端口 (Source + Target 叠加) */}
-      <Handle type="source" position={Position.Bottom} id="b-left"   style={{ left: '25%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
-      <Handle type="target" position={Position.Bottom} id="tb-left"  style={{ left: '25%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} id="b-center" style={{ left: '50%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
-      <Handle type="target" position={Position.Bottom} id="tb-center" style={{ left: '50%', width: 6, height: 6, opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} id="b-right"  style={{ left: '75%', width: 6, height: 6, background: handleColor, border: '1px solid #fff' }} />
-      <Handle type="target" position={Position.Bottom} id="tb-right" style={{ left: '75%', width: 6, height: 6, opacity: 0 }} />
-      <span className="topo-node-icon">{isSwitch ? <Cpu size={20} color="#60a5fa" /> : <Server size={20} color="#34d399" />}</span>
+      <span className="topo-node-icon">{isSwitch ? <Cpu size={26} color="#60a5fa" /> : <Server size={16} color="#34d399" />}</span>
       <span className="topo-node-label">{data.label}</span>
-      {data.ip && <span className="topo-node-ip">{data.ip}</span>}
     </div>
   )
 }
@@ -57,10 +41,10 @@ function toFlowNodes(nodes, links = []) {
   }))
 
   const simulation = d3.forceSimulation(simulationNodes)
-    .force('link', d3.forceLink(simulationLinks).id(d => d.id).distance(120))
-    .force('charge', d3.forceManyBody().strength(-800))
+    .force('link', d3.forceLink(simulationLinks).id(d => d.id).distance(180))
+    .force('charge', d3.forceManyBody().strength(-1000))
     .force('center', d3.forceCenter(400, 300))
-    .force('collide', d3.forceCollide().radius(60))
+    .force('collide', d3.forceCollide().radius(80))
 
   for (let i = 0; i < 300; i++) {
     simulation.tick()
@@ -275,9 +259,9 @@ export default function NetworkTopology() {
                         <div style={{ color: 'var(--color-text-muted)', marginBottom: 4, fontWeight: 600 }}>流表摘要 ({nodeFlows.length} 条)</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                           {nodeFlows.slice(0, 5).map((f, i) => (
-                            <div key={i} style={{ display: 'flex', gap: 6, fontSize: 10, fontFamily: 'monospace', background: 'var(--color-bg-sidebar)', padding: '2px 6px', borderRadius: 4 }}>
-                              <span style={{ color: '#818cf8', minWidth: 30 }}>p={f.priority}</span>
-                              <span style={{ color: 'var(--color-text-muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div key={i} style={{ display: 'flex', gap: 8, fontSize: 11, fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', background: '#f1f5f9', padding: '4px 8px', borderRadius: 6, fontWeight: 500 }}>
+                              <span style={{ color: '#2563eb', minWidth: 36 }}>p={f.priority}</span>
+                              <span style={{ color: '#334155', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {Object.keys(f.match || {}).length === 0 ? 'ANY' : Object.entries(f.match).slice(0, 2).map(([k, v]) => {
                                   if ((k === 'dl_type' || k === 'eth_type')) {
                                     if (v == 35020) return 'LLDP'
@@ -288,7 +272,7 @@ export default function NetworkTopology() {
                                   return `${k.replace(/^(eth_|dl_|nw_|ipv4_|tcp_|udp_)/, '')}=${v}`
                                 }).join(', ')}
                               </span>
-                              <span style={{ color: (f.actions?.length === 0 || (!f.actions && !f.instructions)) ? '#ef4444' : '#16a34a' }}>
+                              <span style={{ color: (f.actions?.length === 0 || (!f.actions && !f.instructions)) ? '#dc2626' : '#059669', fontWeight: 600 }}>
                                 {f.actions?.length === 0 ? 'DROP' : 'FWD'}
                               </span>
                             </div>
