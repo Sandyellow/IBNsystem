@@ -145,6 +145,41 @@ class TopoManager:
                     pass
         return dpids if dpids else [1, 2, 3]  # 兜底
 
+    # ── 路由与寻路 ─────────────────────────────────────────
+    def get_shortest_path(self, src_id: str, dst_id: str) -> List[str]:
+        """使用 BFS 算法计算拓扑中最短路径，返回经过的节点 ID 列表（包含首尾）"""
+        if src_id == dst_id:
+            return [src_id]
+            
+        links = self._topology.get("links", [])
+        graph = {}
+        for link in links:
+            s, t = link["source"], link["target"]
+            graph.setdefault(s, set()).add(t)
+            graph.setdefault(t, set()).add(s)
+            
+        queue = [(src_id, [src_id])]
+        visited = set([src_id])
+        
+        while queue:
+            current, path = queue.pop(0)
+            for neighbor in graph.get(current, []):
+                if neighbor == dst_id:
+                    return path + [neighbor]
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [neighbor]))
+        return []
+
+    def get_link_port(self, src_id: str, dst_id: str) -> Optional[int]:
+        """获取从 src_id 走向 dst_id 时，在 src_id 上的出端口号"""
+        for link in self._topology.get("links", []):
+            if link["source"] == src_id and link["target"] == dst_id:
+                return link.get("src_port")
+            elif link["target"] == src_id and link["source"] == dst_id:
+                return link.get("dst_port")
+        return None
+
     @property
     def topology(self) -> Dict[str, Any]:
         return self._topology

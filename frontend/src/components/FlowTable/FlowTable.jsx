@@ -84,17 +84,26 @@ function formatMatch(match) {
 }
 
 function formatActions(flow) {
-  // Try actions field first
   const actions = flow.actions || []
-  if (actions.length === 0) return <span className="fc-action-drop">DROP</span>
-  // Check instructions
   const instructions = flow.instructions || []
+  
   const allActions = []
-  for (const inst of instructions) {
-    if (inst.actions) allActions.push(...inst.actions)
-    if (inst.type === 'METER') allActions.push(inst)
+  
+  // 从 instructions 中提取 APPLY_ACTIONS 的动作和特殊的指令
+  if (instructions.length > 0) {
+    for (const inst of instructions) {
+      if (inst.actions) allActions.push(...inst.actions)
+      if (inst.type === 'METER' || inst.type === 'GOTO_TABLE') allActions.push(inst)
+    }
   }
+  
+  // 如果从 instructions 没提取到，则退回使用顶层 actions
   const src = allActions.length > 0 ? allActions : actions
+  
+  if (src.length === 0) {
+    return <span className="fc-action-drop">DROP</span>
+  }
+
   return src.map((a, i) => (
     <span key={i} className="fc-action-tag">{formatAction(a)}</span>
   ))

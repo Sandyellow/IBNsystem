@@ -158,34 +158,65 @@ class PolicyExecutor:
                     ),
                 }
         cookie = _make_cookie(intent_id)
-        dpids = topo_manager.get_all_switch_dpids()
+        
+        # 获取通信双方连接的边缘交换机
+        src_sw_name = src_info.get("connected_switch")
+        dst_sw_name = dst_info.get("connected_switch")
+        
+        target_dpids = set()
+        if src_sw_name:
+            dpid = topo_manager.get_switch_dpid(src_sw_name)
+            if dpid: target_dpids.add(dpid)
+        if dst_sw_name:
+            dpid = topo_manager.get_switch_dpid(dst_sw_name)
+            if dpid: target_dpids.add(dpid)
+            
+        # 容错：如果找不到边缘交换机，则使用全局（尽管这应该很少发生）
+        if not target_dpids:
+            target_dpids = set(topo_manager.get_all_switch_dpids())
 
         import asyncio
+        
+        base_match = {"eth_src": src_mac, "eth_dst": dst_mac}
+        rev_match = {"eth_src": dst_mac, "eth_dst": src_mac}
+        
+        # 为了前端能展示 IP 且匹配更精确，我们指定协议类型为 IPv4 并加入 IP 匹配
+        # 注意：一旦加入 IP 匹配，必须设置 eth_type = 0x0800
+        if src_info.get("ip") and dst_info.get("ip"):
+            base_match["eth_type"] = 0x0800
+            base_match["ipv4_src"] = src_info["ip"]
+            base_match["ipv4_dst"] = dst_info["ip"]
+            
+            rev_match["eth_type"] = 0x0800
+            rev_match["ipv4_src"] = dst_info["ip"]
+            rev_match["ipv4_dst"] = src_info["ip"]
+
         async def deploy_to_switch(dpid):
             ok1 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
                 "priority": 500,
-                "match": {"eth_src": src_mac, "eth_dst": dst_mac},
+                "match": base_match,
                 "actions": [],
             })
             ok2 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
                 "priority": 500,
-                "match": {"eth_src": dst_mac, "eth_dst": src_mac},
+                "match": rev_match,
                 "actions": [],
             })
             return dpid if (ok1 and ok2) else None
 
-        results = await asyncio.gather(*(deploy_to_switch(d) for d in dpids))
+        target_dpids_list = list(target_dpids)
+        results = await asyncio.gather(*(deploy_to_switch(d) for d in target_dpids_list))
         installed_dpids = [r for r in results if r is not None]
-        errors = [d for r, d in zip(results, dpids) if r is None]
+        errors = [d for r, d in zip(results, target_dpids_list) if r is None]
 
         if errors:
             logger.warning(f"[_block_traffic] 发现失败，开始执行 Rollback: 清除 {installed_dpids} 上的脏流表 (cookie={cookie})")
             await asyncio.gather(*(ryu_client.delete_flow_by_cookie(d, cookie) for d in installed_dpids))
-            return {"success": False, "error": f"下发失败 (失败列表: {errors})，系统已安全回滚"}
+            return {"success": False, "error": f"下发失败 (失败交换机 DPID 列表: {errors})，系统已安全回滚"}
 
         installed = [f"s{d}" for d in installed_dpids]
 
@@ -290,52 +321,80 @@ class PolicyExecutor:
 
         bw_mbps = float(intent.parameters.get("bandwidth_mbps", 10))
         rate_kbps = int(bw_mbps * 1000)
-        meter_id = _next_meter_id()
         cookie = _make_cookie(intent_id)
 
-        # 在 src_host 连接的交换机上安装 Meter
-        src_sw = src_info.get("connected_switch", "s1")
-        dpid = topo_manager.get_switch_dpid(src_sw) or 1
+        # 获取两端的交换机，准备双向限速
+        src_sw_name = src_info.get("connected_switch")
+        dst_sw_name = dst_info.get("connected_switch")
+        
+        src_dpid = topo_manager.get_switch_dpid(src_sw_name) if src_sw_name else 1
+        dst_dpid = topo_manager.get_switch_dpid(dst_sw_name) if dst_sw_name else 1
 
-        # Step 1: 创建 Meter（超速部分由 OVS Meter 丢弃，正常速率内的包继续转发）
-        meter_ok = await ryu_client.add_meter({
-            "dpid": dpid,
-            "meter_id": meter_id,
+        meter_id_fwd = _next_meter_id()
+        meter_id_rev = _next_meter_id()
+        
+        meter_config = {
             "flags": ["KBPS"],
             "bands": [{"type": "DROP", "rate": rate_kbps, "burst_size": max(10, rate_kbps // 10)}],
-        })
-        if not meter_ok:
-            return {"success": False, "error": f"创建 Meter 失败 (dpid={dpid}, meter_id={meter_id})"}
+        }
 
-        # Step 2: 安装限速流表
-        # ⚠️  Ryu /stats/flowentry/add 不支持 instructions 字段！
-        # 必须使用 actions 列表，在其中用 {"type": "METER"} 挂载 Meter，
-        # Ryu 会自动将其转换为 OpenFlow 1.3 的 METER Instruction + APPLY_ACTIONS Instruction。
-        flow_ok = await ryu_client.add_flow({
-            "dpid": dpid,
+        import asyncio
+
+        base_match = {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac}
+        rev_match = {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac}
+        if src_info.get("ip") and dst_info.get("ip"):
+            base_match["ipv4_src"] = src_info["ip"]
+            base_match["ipv4_dst"] = dst_info["ip"]
+            rev_match["ipv4_src"] = dst_info["ip"]
+            rev_match["ipv4_dst"] = src_info["ip"]
+
+        # 在源交换机限制 src->dst 的正向流量
+        m1_ok = await ryu_client.add_meter({"dpid": src_dpid, "meter_id": meter_id_fwd, **meter_config})
+        if not m1_ok:
+            return {"success": False, "error": f"创建源交换机 Meter 失败 (dpid={src_dpid})"}
+
+        # 在目的交换机限制 dst->src 的反向流量
+        m2_ok = await ryu_client.add_meter({"dpid": dst_dpid, "meter_id": meter_id_rev, **meter_config})
+        if not m2_ok:
+            await ryu_client.delete_meter(src_dpid, meter_id_fwd)
+            return {"success": False, "error": f"创建目的交换机 Meter 失败 (dpid={dst_dpid})，已回滚"}
+
+        # 安装限速流表
+        f1_ok = await ryu_client.add_flow({
+            "dpid": src_dpid,
             "cookie": cookie,
             "priority": 400,
-            "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
+            "match": base_match,
             "actions": [
-                {"type": "METER", "meter_id": meter_id},   # 超速丢包，正常流量继续
-                {"type": "OUTPUT", "port": "NORMAL"},       # 正常转发（依赖 OVS L2 学习）
-            ],
-        })
-
-        # 添加反向流表（不挂载 Meter），防止未知单播泛洪，保证双向通信正常
-        await ryu_client.add_flow({
-            "dpid": dpid,
-            "cookie": cookie,
-            "priority": 400,
-            "match": {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac},
-            "actions": [
+                {"type": "METER", "meter_id": meter_id_fwd},
                 {"type": "OUTPUT", "port": "NORMAL"},
             ],
         })
 
-        if not flow_ok:
-            await ryu_client.delete_meter(dpid, meter_id)
-            return {"success": False, "error": "创建限速流表失败，已回滚 Meter"}
+        f2_ok = await ryu_client.add_flow({
+            "dpid": dst_dpid,
+            "cookie": cookie,
+            "priority": 400,
+            "match": rev_match,
+            "actions": [
+                {"type": "METER", "meter_id": meter_id_rev},
+                {"type": "OUTPUT", "port": "NORMAL"},
+            ],
+        })
+
+        if not (f1_ok and f2_ok):
+            logger.warning("[_rate_limit] 发现失败，开始执行 Rollback")
+            await ryu_client.delete_flow_by_cookie(src_dpid, cookie)
+            await ryu_client.delete_flow_by_cookie(dst_dpid, cookie)
+            await ryu_client.delete_meter(src_dpid, meter_id_fwd)
+            await ryu_client.delete_meter(dst_dpid, meter_id_rev)
+            return {"success": False, "error": "创建限速流表失败，已回滚全套 Meter 和流表"}
+
+        meter_ids = [meter_id_fwd]
+        installed_on = [f"{src_sw_name}({src_dpid})"]
+        if src_dpid != dst_dpid:
+            meter_ids.append(meter_id_rev)
+            installed_on.append(f"{dst_sw_name}({dst_dpid})")
 
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
@@ -344,9 +403,9 @@ class PolicyExecutor:
             dst_host=intent.target_node,
             intent_action=intent.action,
             parameters=intent.parameters,
-            description=f"限速 {intent.source_node}→{intent.target_node} ≤{bw_mbps}Mbps",
+            description=f"双向限速 {intent.source_node}↔{intent.target_node} ≤{bw_mbps}Mbps",
             ryu_cookies=[cookie],
-            meter_ids=[meter_id],
+            meter_ids=meter_ids,
             created_at=time.time(),
         )
         save_policies(_active_policies, _meter_counter)
@@ -354,17 +413,15 @@ class PolicyExecutor:
         return {
             "success": True,
             "type": "rate_limit",
-            "switch": src_sw,
-            "dpid": dpid,
-            "meter_id": meter_id,
+            "installed_switches": installed_on,
+            "meter_ids": meter_ids,
             "rate_kbps": rate_kbps,
             "bw_mbps": bw_mbps,
             "src_mac": src_mac,
             "dst_mac": dst_mac,
             "message": (
-                f"已在 {src_sw}(dpid={dpid}) 创建 Meter #{meter_id}（{bw_mbps}Mbps，"
-                f"{rate_kbps}kbps KBPS 限速），正向流表 cookie={hex(cookie)}。"
-                f"超速包由 OVS Meter 丢弃，速率内的包正常转发"
+                f"已在 {', '.join(installed_on)} 创建双向 Meter（{bw_mbps}Mbps 限速），"
+                f"关联流表 cookie={hex(cookie)}。"
             ),
         }
 
@@ -378,34 +435,58 @@ class PolicyExecutor:
         src_mac = src_info["mac"]
         dst_mac = dst_info["mac"]
         cookie = _make_cookie(intent_id)
-        dpids = topo_manager.get_all_switch_dpids()
+        
+        # 获取通信双方连接的边缘交换机
+        src_sw_name = src_info.get("connected_switch")
+        dst_sw_name = dst_info.get("connected_switch")
+        
+        target_dpids = set()
+        if src_sw_name:
+            dpid = topo_manager.get_switch_dpid(src_sw_name)
+            if dpid: target_dpids.add(dpid)
+        if dst_sw_name:
+            dpid = topo_manager.get_switch_dpid(dst_sw_name)
+            if dpid: target_dpids.add(dpid)
+            
+        if not target_dpids:
+            target_dpids = set(topo_manager.get_all_switch_dpids())
 
         import asyncio
+        
+        base_match = {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac}
+        rev_match = {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac}
+        if src_info.get("ip") and dst_info.get("ip"):
+            base_match["ipv4_src"] = src_info["ip"]
+            base_match["ipv4_dst"] = dst_info["ip"]
+            rev_match["ipv4_src"] = dst_info["ip"]
+            rev_match["ipv4_dst"] = src_info["ip"]
+
         async def deploy_to_switch(dpid):
             ok1 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
                 "priority": priority,
-                "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
+                "match": base_match,
                 "actions": [{"type": "OUTPUT", "port": "NORMAL"}],
             })
             ok2 = await ryu_client.add_flow({
                 "dpid": dpid,
                 "cookie": cookie,
                 "priority": priority,
-                "match": {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac},
+                "match": rev_match,
                 "actions": [{"type": "OUTPUT", "port": "NORMAL"}],
             })
             return dpid if (ok1 and ok2) else None
 
-        results = await asyncio.gather(*(deploy_to_switch(d) for d in dpids))
+        target_dpids_list = list(target_dpids)
+        results = await asyncio.gather(*(deploy_to_switch(d) for d in target_dpids_list))
         installed_dpids = [r for r in results if r is not None]
-        errors = [d for r, d in zip(results, dpids) if r is None]
+        errors = [d for r, d in zip(results, target_dpids_list) if r is None]
 
         if errors:
             logger.warning(f"[_set_priority] 发现失败，开始执行 Rollback: 清除 {installed_dpids} 上的脏流表 (cookie={cookie})")
             await asyncio.gather(*(ryu_client.delete_flow_by_cookie(d, cookie) for d in installed_dpids))
-            return {"success": False, "error": f"下发失败 (失败列表: {errors})，系统已安全回滚"}
+            return {"success": False, "error": f"下发失败 (失败交换机 DPID 列表: {errors})，系统已安全回滚"}
 
         installed = [f"s{d}" for d in installed_dpids]
 
@@ -436,43 +517,83 @@ class PolicyExecutor:
         if not src_info or not dst_info:
             return {"success": False, "error": f"主机不存在: {intent.source_node} 或 {intent.target_node}"}
 
-        via_sw = intent.parameters.get("via_switch")
+        # 兼容 LLM 输出的 via_node 或 via_switch
+        via_sw = intent.parameters.get("via_node") or intent.parameters.get("via_switch")
+        if not via_sw:
+            return {"success": False, "error": "重定向策略未指定中转节点 (via_node)"}
+
+        src_sw_name = src_info.get("connected_switch")
+        dst_sw_name = dst_info.get("connected_switch")
+        if not src_sw_name or not dst_sw_name:
+            return {"success": False, "error": "无法确定主机的连接交换机，重定向失败"}
+
         src_mac = src_info["mac"]
         dst_mac = dst_info["mac"]
         cookie = _make_cookie(intent_id)
 
-        # 在 src_host 连接的交换机上安装重定向规则
-        src_sw_name = src_info.get("connected_switch", "s1")
-        dpid = topo_manager.get_switch_dpid(src_sw_name) or 1
+        # 1. 计算正向路径：src_sw -> via_sw -> dst_sw
+        path_a = topo_manager.get_shortest_path(src_sw_name, via_sw)
+        path_b = topo_manager.get_shortest_path(via_sw, dst_sw_name)
+        if not path_a or not path_b:
+            return {"success": False, "error": f"无法找到从 {src_sw_name} 经 {via_sw} 到 {dst_sw_name} 的物理路径"}
+        # 拼接正向全路径（去除重复的 via_sw）
+        fwd_path = path_a[:-1] + path_b
 
-        # 从拓扑中查找到 via_switch 的出端口
-        out_port = "NORMAL"
-        if via_sw:
-            for link in topo_manager.topology.get("links", []):
-                if link["source"] == src_sw_name and link["target"] == via_sw and link.get("src_port"):
-                    out_port = link["src_port"]
-                    break
-                elif link["target"] == src_sw_name and link["source"] == via_sw and link.get("dst_port"):
-                    out_port = link["dst_port"]
-                    break
+        # 2. 计算反向路径：dst_sw -> via_sw -> src_sw
+        path_c = topo_manager.get_shortest_path(dst_sw_name, via_sw)
+        path_d = topo_manager.get_shortest_path(via_sw, src_sw_name)
+        rev_path = (path_c[:-1] + path_d) if (path_c and path_d) else []
 
-        # 强制将端口号转为 int，防止 Ryu API 接收到字符串端口引发 500 校验错误
-        port_val = out_port
-        try:
-            port_val = int(out_port)
-        except ValueError:
-            pass
+        base_match = {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac}
+        rev_match = {"eth_type": 0x0800, "eth_src": dst_mac, "eth_dst": src_mac}
+        if src_info.get("ip") and dst_info.get("ip"):
+            base_match["ipv4_src"] = src_info["ip"]
+            base_match["ipv4_dst"] = dst_info["ip"]
+            rev_match["ipv4_src"] = dst_info["ip"]
+            rev_match["ipv4_dst"] = src_info["ip"]
 
-        ok = await ryu_client.add_flow({
-            "dpid": dpid,
-            "cookie": cookie,
-            "priority": 450,
-            "match": {"eth_type": 0x0800, "eth_src": src_mac, "eth_dst": dst_mac},
-            "actions": [{"type": "OUTPUT", "port": port_val}],
-        })
+        import asyncio
+        installed_nodes = []
 
-        if not ok:
-            return {"success": False, "error": "重定向流表下发失败"}
+        async def install_hop(sw_name: str, next_hop: str, match: dict) -> bool:
+            out_port = topo_manager.get_link_port(sw_name, next_hop)
+            if not out_port:
+                logger.error(f"找不到从 {sw_name} 到 {next_hop} 的端口")
+                return False
+            dpid = topo_manager.get_switch_dpid(sw_name)
+            if not dpid: return False
+            
+            ok = await ryu_client.add_flow({
+                "dpid": dpid,
+                "cookie": cookie,
+                "priority": 450,
+                "match": match,
+                "actions": [{"type": "OUTPUT", "port": int(out_port)}],
+            })
+            if ok and sw_name not in installed_nodes:
+                installed_nodes.append(sw_name)
+            return ok
+
+        tasks = []
+        # 3. 逐跳下发正向流表
+        for i in range(len(fwd_path)):
+            current = fwd_path[i]
+            next_hop = fwd_path[i+1] if i + 1 < len(fwd_path) else intent.target_node
+            tasks.append(install_hop(current, next_hop, base_match))
+            
+        # 4. 逐跳下发反向流表
+        for i in range(len(rev_path)):
+            current = rev_path[i]
+            next_hop = rev_path[i+1] if i + 1 < len(rev_path) else intent.source_node
+            tasks.append(install_hop(current, next_hop, rev_match))
+
+        results = await asyncio.gather(*tasks)
+        if not all(results) or not tasks:
+            # 失败回滚
+            for n in installed_nodes:
+                d = topo_manager.get_switch_dpid(n)
+                if d: await ryu_client.delete_flow_by_cookie(d, cookie)
+            return {"success": False, "error": "部分接力流表下发失败，重定向已回滚"}
 
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id,
@@ -481,7 +602,7 @@ class PolicyExecutor:
             dst_host=intent.target_node,
             intent_action=intent.action,
             parameters=intent.parameters,
-            description=f"重定向 {intent.source_node}→{intent.target_node} 经由 {via_sw or '默认路径'}",
+            description=f"双向重定向 {intent.source_node}↔{intent.target_node} 经由 {via_sw}",
             ryu_cookies=[cookie],
             created_at=time.time(),
         )
@@ -490,13 +611,11 @@ class PolicyExecutor:
         return {
             "success": True,
             "type": "redirect_traffic",
-            "switch": src_sw_name,
             "via_switch": via_sw,
-            "out_port": out_port,
+            "installed_on": installed_nodes,
             "message": (
-                f"已在 {src_sw_name}(dpid={dpid}) 安装重定向规则，"
-                f"{intent.source_node}→{intent.target_node} 的流量经由端口 {out_port}"
-                f"{' (→' + via_sw + ')' if via_sw else ''}"
+                f"已成功下发双向重定向策略，流量强制绕路 {via_sw}。\n"
+                f"正向路径: {intent.source_node} -> {' -> '.join(fwd_path)} -> {intent.target_node}"
             ),
         }
 
