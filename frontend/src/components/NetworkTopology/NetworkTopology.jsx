@@ -283,9 +283,140 @@ function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
         dstPort: link.dst_port,
         srcLabel: sourceNode?.data?.label || sId,
         dstLabel: targetNode?.data?.label || tId,
+        sourceDpid: sourceNode?.data?.dpid || sourceNode?.dpid,
+        targetDpid: targetNode?.data?.dpid || targetNode?.dpid,
       }
     }
   })
+}
+
+// ─── Edge Detail Overlay ──────────────────────────────────────
+function formatSpeed(kbps) {
+  if (!kbps) return '0 Kbps'
+  if (kbps < 1000) return `${Number(kbps).toFixed(1)} Kbps`
+  return `${(kbps / 1000).toFixed(2)} Mbps`
+}
+
+function getPercentage(kbps, capacity) {
+  if (!kbps || !capacity) return '0.0';
+  const percent = (kbps / capacity) * 100;
+  return Math.min(percent, 100).toFixed(1);
+}
+
+function EdgeDetailOverlay({ edgeData, onClose }) {
+  const [statsData, setStatsData] = useState({});
+  const [historyData, setHistoryData] = useState({});
+  const [descData, setDescData] = useState({});
+  
+  useEffect(() => {
+    let mounted = true;
+    const fetchDesc = async () => {
+      try {
+        const resp = await api.get('/port-desc');
+        if (mounted) {
+          setDescData(resp.data.port_desc || {});
+        }
+      } catch (e) {
+        console.error('Failed to fetch port desc', e);
+      }
+    };
+    fetchDesc();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchStats = async () => {
+      try {
+        const resp = await api.get('/port-stats');
+        if (mounted) {
+          setStatsData(resp.data.port_stats || {});
+          setHistoryData(resp.data.history || {});
+        }
+      } catch (e) {
+        console.error('Failed to fetch port stats', e);
+      }
+    };
+    
+    fetchStats();
+    const interval = setInterval(fetchStats, 2000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  let speedForward = 0;
+  let speedBackward = 0;
+
+  const srcDpidParsed = edgeData.sourceDpid ? parseInt(edgeData.sourceDpid, 16).toString() : null;
+  const dstDpidParsed = edgeData.targetDpid ? parseInt(edgeData.targetDpid, 16).toString() : null;
+  const srcPortNum = edgeData.srcPort ? parseInt(edgeData.srcPort, 16) : null;
+  const dstPortNum = edgeData.dstPort ? parseInt(edgeData.dstPort, 16) : null;
+
+  let srcCapacity = 100000; // default 100Mbps
+  let dstCapacity = 100000; // default 100Mbps
+
+  if (srcDpidParsed && descData[srcDpidParsed]) {
+    const pDesc = descData[srcDpidParsed].find(p => String(p.port_no) === String(srcPortNum));
+    if (pDesc && pDesc.curr_speed) {
+      srcCapacity = pDesc.curr_speed;
+    }
+  }
+  
+  if (dstDpidParsed && descData[dstDpidParsed]) {
+    const pDesc = descData[dstDpidParsed].find(p => String(p.port_no) === String(dstPortNum));
+    if (pDesc && pDesc.curr_speed) {
+      dstCapacity = pDesc.curr_speed;
+    }
+  }
+
+  if (srcDpidParsed && historyData[srcDpidParsed] && historyData[srcDpidParsed].length > 0) {
+    const latest = historyData[srcDpidParsed][historyData[srcDpidParsed].length - 1];
+    if (srcPortNum && latest[`${srcPortNum}_tx`] !== undefined) speedForward = latest[`${srcPortNum}_tx`];
+    if (srcPortNum && latest[`${srcPortNum}_rx`] !== undefined) speedBackward = latest[`${srcPortNum}_rx`];
+  } else if (dstDpidParsed && historyData[dstDpidParsed] && historyData[dstDpidParsed].length > 0) {
+    const latest = historyData[dstDpidParsed][historyData[dstDpidParsed].length - 1];
+    if (dstPortNum && latest[`${dstPortNum}_rx`] !== undefined) speedForward = latest[`${dstPortNum}_rx`];
+    if (dstPortNum && latest[`${dstPortNum}_tx`] !== undefined) speedBackward = latest[`${dstPortNum}_tx`];
+  }
+
+  return (
+    <div className="node-detail-overlay">
+      <div className="node-detail-header">
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Network size={14} color="#f59e0b" />
+          链路使用情况
+        </span>
+        <button className="btn-close" onClick={onClose}>✕</button>
+      </div>
+      <div className="node-detail-body">
+        <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#475569' }}>{edgeData.srcLabel} → {edgeData.dstLabel}</span>
+              <span style={{ color: '#2563eb', fontFamily: 'monospace', fontWeight: 600, fontSize: 13 }}>
+                {formatSpeed(speedForward)} <span style={{ fontSize: 10, color: '#64748b', fontWeight: 'normal' }}>({getPercentage(speedForward, srcCapacity)}%)</span>
+              </span>
+            </div>
+            <div style={{ height: 4, width: '100%', background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#3b82f6', width: `${getPercentage(speedForward, srcCapacity)}%`, transition: 'width 0.3s ease' }}></div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#475569' }}>{edgeData.dstLabel} → {edgeData.srcLabel}</span>
+              <span style={{ color: '#16a34a', fontFamily: 'monospace', fontWeight: 600, fontSize: 13 }}>
+                {formatSpeed(speedBackward)} <span style={{ fontSize: 10, color: '#64748b', fontWeight: 'normal' }}>({getPercentage(speedBackward, dstCapacity)}%)</span>
+              </span>
+            </div>
+            <div style={{ height: 4, width: '100%', background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: '#22c55e', width: `${getPercentage(speedBackward, dstCapacity)}%`, transition: 'width 0.3s ease' }}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function NetworkTopology() {
@@ -298,6 +429,7 @@ export default function NetworkTopology() {
   // 用 useNodesState / useEdgesState + useEffect 保证正确同步
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [selectedEdge, setSelectedEdge] = useState(null)
   
   // 记录上一次拓扑的 JSON，避免无意义的重绘导致的内存泄漏
   const [lastTopoJson, setLastTopoJson] = useState('')
@@ -388,8 +520,9 @@ export default function NetworkTopology() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onNodeClick={(_, node) => setSelectedNode(node.data)}
-            onPaneClick={() => setSelectedNode(null)}
+            onNodeClick={(_, node) => { setSelectedNode(node.data); setSelectedEdge(null); }}
+            onEdgeClick={(_, edge) => { setSelectedEdge(edge.data); setSelectedNode(null); }}
+            onPaneClick={() => { setSelectedNode(null); setSelectedEdge(null); }}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             fitView
@@ -413,6 +546,11 @@ export default function NetworkTopology() {
               <span className="pp-indicator"></span>
               控制器规划预期路径 (Expected Path)
             </div>
+          )}
+
+          {/* 边详情悬浮窗 */}
+          {selectedEdge && (
+            <EdgeDetailOverlay edgeData={selectedEdge} onClose={() => setSelectedEdge(null)} />
           )}
 
           {/* 节点详情悬浮窗 */}

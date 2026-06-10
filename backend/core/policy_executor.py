@@ -501,7 +501,15 @@ class PolicyExecutor:
                 for i in range(len(path) - 1):
                     next_hops.setdefault(path[i], set()).add(path[i+1])
 
-            match = _build_match(src_host["mac"], dst_host["mac"], src_host.get("ip"), dst_host.get("ip"), intent.match)
+            base_match = _build_match(src_host["mac"], dst_host["mac"], src_host.get("ip"), dst_host.get("ip"), intent.match)
+            
+            matches_to_install = [(base_match, prio)]
+            if "ip_proto" not in base_match and "ipv4_src" in base_match:
+                match_tcp = dict(base_match)
+                match_tcp["ip_proto"] = 6
+                match_udp = dict(base_match)
+                match_udp["ip_proto"] = 17
+                matches_to_install = [(match_tcp, prio + 1), (match_udp, prio + 1), (base_match, prio)]
             
             for current_node, next_nodes in next_hops.items():
                 dpid = topo_manager.get_switch_dpid(current_node)
@@ -510,7 +518,8 @@ class PolicyExecutor:
                     out_port_raw = topo_manager.get_link_port(current_node, list(next_nodes)[0])
                     if out_port_raw:
                         out_port = int(out_port_raw, 16) if isinstance(out_port_raw, str) else int(out_port_raw)
-                        primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match, actions=[{"type": "OUTPUT", "port": out_port}]))
+                        for m, p in matches_to_install:
+                            primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=p, match=m, actions=[{"type": "OUTPUT", "port": out_port}]))
                 else:
                     group_id = _next_meter_id()
                     group_ids.append(group_id)
@@ -525,12 +534,14 @@ class PolicyExecutor:
                             buckets.append({"weight": weight, "actions": [{"type": "OUTPUT", "port": out_port}]})
                     if buckets:
                         primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.GROUP_ENTRY, dpid=dpid, extra={"type": "SELECT", "group_id": group_id, "buckets": buckets}))
-                        primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match, actions=[{"type": "GROUP", "group_id": group_id}]))
+                        for m, p in matches_to_install:
+                            primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=p, match=m, actions=[{"type": "GROUP", "group_id": group_id}]))
             
             dst_port_raw = dst_host.get("port")
             dst_port = int(dst_port_raw, 16) if isinstance(dst_port_raw, str) else (int(dst_port_raw) if dst_port_raw else 0)
             if dst_port:
-                primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dst_dpid, cookie=cookie, priority=prio, match=match, actions=[{"type": "OUTPUT", "port": dst_port}]))
+                for m, p in matches_to_install:
+                    primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dst_dpid, cookie=cookie, priority=p, match=m, actions=[{"type": "OUTPUT", "port": dst_port}]))
 
         try:
             for src in src_hosts:

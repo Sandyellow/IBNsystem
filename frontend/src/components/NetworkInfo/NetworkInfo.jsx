@@ -1,9 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import useStore from '../../store/useStore'
 import FlowTable from '../FlowTable/FlowTable'
 import PortStats from '../PortStats/PortStats'
 import PolicyPanel from '../PolicyPanel/PolicyPanel'
 import { Network, ArrowRightLeft, Activity, ShieldCheck, Server, Cpu } from 'lucide-react'
+import api from '../../services/api'
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function formatSpeed(kbps) {
+  if (!kbps) return '0 KB/s'
+  if (kbps < 1000) return `${Number(kbps).toFixed(1)} KB/s`
+  return `${(kbps / 1000).toFixed(2)} MB/s`
+}
 
 const TABS = [
   { id: 'topo', label: '拓扑信息', icon: Network },
@@ -15,6 +30,19 @@ const TABS = [
 function TopoInfo() {
   const topology = useStore(s => s.topology)
   const networkStatus = useStore(s => s.networkStatus)
+  const [statsData, setStatsData] = useState({})
+  const [historyData, setHistoryData] = useState({})
+  const [loadingStats, setLoadingStats] = useState(false)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+
+  const fetchStats = async () => {
+    // Only need this if we want to show anything else from stats, but we are removing link stats here.
+    // We can keep a simple call if other parts needed it, but none do in TopoInfo.
+  }
+
+  useEffect(() => {
+    // No longer need to fetch stats here since link usage is moved to topology edge click
+  }, [])
 
   const nodes = topology?.nodes || []
   const links = topology?.links || []
@@ -85,7 +113,7 @@ function TopoInfo() {
 
       {/* 主机列表 */}
       {hosts.length > 0 && (
-        <div>
+        <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6, fontWeight: 700 }}>主机</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {hosts.map(h => (
@@ -111,6 +139,8 @@ function TopoInfo() {
           </div>
         </div>
       )}
+
+      {/* 链路使用率已移除，移动至点击连线展示 */}
 
 
       {nodes.length === 0 && (
