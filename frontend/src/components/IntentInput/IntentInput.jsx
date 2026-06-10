@@ -12,6 +12,7 @@ const STATUS_CONFIG = {
   executing: { cls: 'badge-executing', label: '执行中', icon: <Zap size={12} /> },
   success: { cls: 'badge-success', label: '成功', icon: <CheckCircle2 size={12} /> },
   failed: { cls: 'badge-failed', label: '失败', icon: <XCircle size={12} /> },
+  conflict: { cls: 'badge-conflict', label: '策略冲突', icon: <AlertTriangle size={12} /> },
 }
 
 const ACTION_ICONS = {
@@ -39,6 +40,19 @@ const QUICK_ACTIONS = [
 
 function ResultDisplay({ result, action }) {
   if (!result) return null
+
+  if (result.success === false) {
+    return (
+      <div className="bubble bubble-error" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          <XCircle size={14} /> 执行失败
+        </div>
+        <div style={{ fontSize: 12 }}>
+          {result.error || result.message || '未知错误'}
+        </div>
+      </div>
+    )
+  }
 
   // query_topology 结果
   if (result.type === 'query_topology') {
@@ -99,6 +113,59 @@ function ResultDisplay({ result, action }) {
     )
   }
 
+  // 策略冲突结果
+  if (result.type === 'conflict') {
+    const conflicts = result.conflicts || []
+    const severityLabel = {
+      mutually_exclusive: '互斥',
+      duplicate: '重复',
+      override: '覆盖',
+    }
+    return (
+      <div className="bubble bubble-conflict">
+        <div className="result-header" style={{ color: '#ea580c', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          <AlertTriangle size={14} /> 策略冲突检测
+        </div>
+        <div style={{ fontSize: 12, marginBottom: 8, color: '#9a3412' }}>
+          {result.message}
+        </div>
+        {conflicts.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {conflicts.map((c, i) => (
+              <div key={i} className="conflict-item">
+                <span className={`conflict-severity severity-${c.severity}`}>
+                  {severityLabel[c.severity] || c.severity}
+                </span>
+                <div style={{ flex: 1, fontSize: 11 }}>
+                  <div style={{ fontWeight: 600, color: '#7c2d12', marginBottom: 2 }}>
+                    {c.existing_description || c.description}
+                  </div>
+                  <div style={{ color: '#92400e', fontFamily: 'monospace' }}>
+                    ID: {c.policy_id?.slice(0, 8)}…
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // 助手对话回复（兜底，一般不会触发）
+  if (result.type === 'chat') {
+    return (
+      <div className="bubble bubble-system" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+        <div className="result-header" style={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          <BrainCircuit size={14} /> 助手回复
+        </div>
+        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-primary)' }}>
+          {result.message}
+        </div>
+      </div>
+    )
+  }
+
   // 控制类操作成功结果
   const controlColors = {
     block_traffic: '#f97316',     // orange-500
@@ -146,7 +213,13 @@ function ResultDisplay({ result, action }) {
 
 function IntentBubble({ record }) {
   const [showDev, setShowDev] = useState(false)
-  const cfg = STATUS_CONFIG[record.status] || STATUS_CONFIG.pending
+  // 从执行结果中推断真实状态（冲突时覆盖 success 状态）
+  const effectiveStatus = (() => {
+    if (['pending', 'parsing', 'executing'].includes(record.status)) return record.status
+    if (record.execution_result?.type === 'conflict') return 'conflict'
+    return record.status
+  })()
+  const cfg = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.pending
   const isLoading = ['pending', 'parsing', 'executing'].includes(record.status)
   const intent = record.parsed_intent
 

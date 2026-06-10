@@ -14,7 +14,7 @@ from langgraph.prebuilt import ToolNode
 
 from config import settings
 from models.intent import ParsedIntent
-from core.tools import get_node_location, get_active_policies
+from core.tools import get_node_location, get_active_policies, cancel_active_policy
 from core.intent_validator import intent_validator
 from core.policy_executor import policy_executor
 from core.topo_manager import topo_manager
@@ -36,7 +36,7 @@ llm = ChatOpenAI(
     temperature=0.1
 )
 
-tools = [get_node_location, get_active_policies]
+tools = [get_node_location, get_active_policies, cancel_active_policy]
 # 将 ParsedIntent 也绑定为工具，供 LLM 在决策完毕后输出最终意图
 llm_with_tools = llm.bind_tools(tools + [ParsedIntent])
 
@@ -48,10 +48,12 @@ async def agent_node(state: IBNState):
 
     # System Prompt 定义
     system_prompt = """你是一个 SDN 网络控制助手。用户的自然语言将被你解析为结构化网络策略。
-遇到未知节点，必须调用 get_node_location 工具。
-当要下发新策略前，必须调用 get_active_policies 工具检查语义冲突。
-如果一切检查通过，或者你已经得出了结论，请调用 ParsedIntent 工具输出最终结果。
-"""
+
+【重要规则】
+1. 遇到未知节点，必须先调用 get_node_location 工具查询节点位置。
+2. 策略冲突检测由系统自动完成，你不需要也不应该做冲突判断，直接解析意图并调用 ParsedIntent 工具输出结果即可。
+3. 当用户明确要求撤销某条策略时，调用 cancel_active_policy 工具，完成后再调用 ParsedIntent 确认。
+4. 完成节点查询后，必须调用 ParsedIntent 工具输出最终结构化意图。不要用自然语言解释，直接调用工具。"""
     from langchain_core.messages import SystemMessage, AIMessage
     
     # 消息清理：保留完整历史，但清理掉一些大模型 API 可能不兼容的额外参数（如 reasoning_content）
@@ -125,10 +127,39 @@ async def execute_node(state: IBNState):
         
         # 2. Rule-based 验证层
         topo = topo_manager.topology
-        report = await intent_validator.validate(parsed_intent, topo)
+        report = await intent_validator.validate(parsed_intent, topo, intent_id)
         
-        # 如果 Rule-based 验证失败，将错误信息作为 ToolMessage 返回给大模型重试！
+        # 如果 Rule-based 验证失败
         if not report.overall_passed:
+            # 检查是否为冲突类失败：冲突失败直接结束，不触发 LLM 回环重试
+            conflict_layer = next((res for res in report.layers if res.layer == "conflict_detection" and not res.passed), None)
+            if conflict_layer:
+                logger.warning(f"[{intent_id}] 冲突检测失败，直接结束: {conflict_layer.message}")
+                # 从活跃策略中补充冲突策略的完整描述
+                from core.policy_executor import policy_executor as _pe
+                active_map = {p["id"]: p for p in _pe.get_active_policies()}
+                enriched_conflicts = []
+                for c in (conflict_layer.conflicts or []):
+                    c_dict = c.model_dump()
+                    pol = active_map.get(c.policy_id, {})
+                    c_dict["existing_description"] = pol.get("description", "")
+                    c_dict["existing_src"] = pol.get("src_host", "")
+                    c_dict["existing_dst"] = pol.get("dst_host", "")
+                    enriched_conflicts.append(c_dict)
+                conflict_result = {
+                    "success": False,
+                    "type": "conflict",
+                    "message": conflict_layer.message,
+                    "conflicts": enriched_conflicts,
+                }
+                success_msg = ToolMessage(
+                    content=json.dumps(conflict_result, ensure_ascii=False),
+                    tool_call_id=parsed_intent_call["id"],
+                    name="ParsedIntent"
+                )
+                return {"messages": [success_msg], "execution_result": conflict_result, "parsed_intent": parsed_intent}
+
+            # 非冲突类失败（拓扑/安全）：退回给 LLM 重试
             error_msgs = [f"[{res.layer}] {res.message}" for res in report.layers if not res.passed]
             full_error = "验证失败：\n" + "\n".join(error_msgs) + "\n请根据报错修正你的参数，重新输出 ParsedIntent。"
             

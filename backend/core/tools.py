@@ -20,7 +20,6 @@ def get_node_location(node_id: str) -> str:
     if not node_id:
         return "查询失败：未提供 node_id"
 
-    # 查询是否为主机
     host_info = topo_manager.get_host(node_id)
     if host_info:
         ip = host_info.get("ip", "未知")
@@ -29,12 +28,11 @@ def get_node_location(node_id: str) -> str:
         port = host_info.get("port", "未知")
         return (f"主机节点 {node_id} 存在: "
                 f"IP={ip}, MAC={mac}, 连接在交换机 {connected_sw} 的端口 {port} 上。")
-    
-    # 查询是否为交换机
+
     dpid = topo_manager.get_switch_dpid(node_id)
     if dpid is not None:
         return f"交换机节点 {node_id} 存在: DPID={dpid}。"
-        
+
     return f"节点 {node_id} 不存在于当前网络拓扑中。"
 
 
@@ -48,7 +46,23 @@ def get_active_policies() -> str:
     policies = policy_executor.get_active_policies()
     if not policies:
         return "当前网络没有任何活跃的自定义策略。"
-    
-    # 将字典列表转为美化的 JSON 字符串供 LLM 理解
+
     return json.dumps(policies, ensure_ascii=False, indent=2)
+
+
+@tool
+async def cancel_active_policy(policy_id: str) -> str:
+    """
+    撤销（删除）系统中一条活跃的策略。
+    当用户明确要求撤销某条策略时，调用此工具清理旧状态。
+    参数 policy_id: 要撤销的策略唯一标识符。
+    """
+    if not policy_id:
+        return "撤销失败：未提供 policy_id"
+
+    ok, msg = await policy_executor.delete_policy(policy_id)
+    if ok:
+        return f"成功撤销策略 {policy_id}: {msg}"
+    else:
+        return f"撤销策略 {policy_id} 失败: {msg}"
 

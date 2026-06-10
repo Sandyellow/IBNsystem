@@ -374,6 +374,33 @@ body { overflow: hidden; height: 100vh; }
   border-radius: 8px;
   font-size: 11px;
 }
+.bubble-conflict {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+.conflict-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 6px;
+  border: 1px solid #fed7aa;
+}
+.conflict-severity {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.severity-mutually_exclusive { background: #fee2e2; color: #b91c1c; }
+.severity-duplicate { background: #fef3c7; color: #92400e; }
+.severity-override { background: #fff7ed; color: #c2410c; }
 
 .intent-status-badge {
   display: inline-flex;
@@ -397,6 +424,7 @@ body { overflow: hidden; height: 100vh; }
 .badge-validating { background: var(--color-info-light); color: var(--color-info); }
 .badge-success { background: var(--color-success-light); color: var(--color-success); }
 .badge-failed { background: var(--color-danger-light); color: var(--color-danger); }
+.badge-conflict { background: #fff7ed; color: #ea580c; }
 .badge-rejected { background: var(--color-warning-light); color: var(--color-warning); }
 .badge-executing { background: var(--color-primary-light); color: var(--color-primary); }
 .badge-confirmed { background: var(--color-warning-light); color: var(--color-warning); }

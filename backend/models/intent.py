@@ -64,11 +64,27 @@ class ValidationLayer(str, Enum):
     SECURITY_POLICY = "security_policy"
     CONFLICT_DETECTION = "conflict_detection"
 
+
+class ConflictSeverity(str, Enum):
+    DUPLICATE = "duplicate"
+    OVERRIDE = "override"
+    MUTUALLY_EXCLUSIVE = "mutually_exclusive"
+
+
+class ConflictInfo(BaseModel):
+    policy_id: str
+    severity: ConflictSeverity
+    description: str
+    existing_action: Optional[str] = None
+    existing_parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
 class ValidationResult(BaseModel):
     layer: ValidationLayer
     passed: bool
     message: str
     details: Dict[str, Any] = Field(default_factory=dict)
+    conflicts: List[ConflictInfo] = Field(default_factory=list)
 
 class IntentValidationReport(BaseModel):
     overall_passed: bool
