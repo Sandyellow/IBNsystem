@@ -22,6 +22,7 @@ class IntentAction(str, Enum):
     PORT_MIRROR      = "port_mirror"
     VLAN             = "vlan"
     MONITOR_ALERT    = "monitor_alert"
+    MULTIPATH        = "multipath"
 
 
 class IntentScope(str, Enum):
@@ -71,6 +72,10 @@ class VlanParams(BaseModel):
 class MonitorAlertParams(BaseModel):
     threshold_kbps: float = Field(..., description="流量告警阈值 (Kbps)")
 
+class MultipathParams(BaseModel):
+    pass
+
+
 # 为简化大模型输出，使用 Union，Pydantic 会自动尝试匹配
 ActionParams = Union[
     RateLimitParams,
@@ -80,6 +85,7 @@ ActionParams = Union[
     PortMirrorParams,
     VlanParams,
     MonitorAlertParams,
+    MultipathParams,
     Dict[str, Any]
 ]
 

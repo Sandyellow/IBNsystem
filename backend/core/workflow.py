@@ -75,6 +75,8 @@ async def agent_node(state: IBNState):
   => action: block_traffic, source_nodes: ["h1"], target_nodes: ["h3"], match: {"ip_proto": 6, "tcp_dst": 22}
 - 划分VLAN："把 h1 和 h2 划分到 vlan 10"
   => action: vlan, source_nodes: ["h1", "h2"], action_params: {"vlan_id": 10}
+- 链路负载均衡："在 h1 和 h2 之间启用链路多路径负载均衡"
+  => action: multipath, source_nodes: ["h1"], target_nodes: ["h2"]
 - 复合操作："先限制 h1 到 h2 带宽 5M，然后隔离 h3"
   => 输出包含两个对象的列表：
      1. action: rate_limit, source_nodes: ["h1"], target_nodes: ["h2"], action_params: {"bandwidth_mbps": 5}

@@ -73,6 +73,7 @@ class PolicyExecutor:
                 IntentAction.PORT_MIRROR:      self._port_mirror,
                 IntentAction.VLAN:             self._vlan,
                 IntentAction.MONITOR_ALERT:    self._monitor_alert,
+                IntentAction.MULTIPATH:        self._multipath,
             }
             handler = handlers.get(action)
             if handler is None:
@@ -336,6 +337,7 @@ class PolicyExecutor:
                         await ryu_client.delete_flows_by_cookie(dpid, cookie)
                     for mid in pol.meter_ids:
                         await ryu_client.delete_primitive(NetworkPrimitive(primitive_type=PrimitiveType.METER_ENTRY, dpid=dpid, extra={"meter_id": mid}))
+                        await ryu_client.delete_primitive(NetworkPrimitive(primitive_type=PrimitiveType.GROUP_ENTRY, dpid=dpid, extra={"group_id": mid}))
 
         for pid in policies_to_remove:
             if pid in _active_policies: del _active_policies[pid]
@@ -471,6 +473,103 @@ class PolicyExecutor:
     async def _monitor_alert(self, intent: ParsedIntent, intent_id: str) -> Dict:
         return {"success": False, "error": "监控告警规则目前只需在前端通过图表观测即可，后端暂未引入单独告警进程"}
 
+    async def _multipath(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
+        dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
+        if not src_hosts or not dst_hosts:
+            return {"success": False, "error": "源或目标主机解析为空"}
+
+        cookie = _make_cookie(intent_id)
+        primitives = []
+        group_ids = []
+        prio = intent.intent_priority if intent.intent_priority is not None else 700
+
+        async def install_multipath(src_host, dst_host):
+            src_sw_name = src_host.get("connected_switch")
+            dst_sw_name = dst_host.get("connected_switch")
+            if not src_sw_name or not dst_sw_name: return
+            
+            src_dpid = topo_manager.get_switch_dpid(src_sw_name)
+            dst_dpid = topo_manager.get_switch_dpid(dst_sw_name)
+            
+            paths = topo_manager.get_all_shortest_paths(src_sw_name, dst_sw_name)
+            if not paths or len(paths) < 2:
+                raise ValueError(f"{src_host['id']} 到 {dst_host['id']} 之间没有冗余的等价最短路径，无法执行负载均衡。")
+
+            next_hops = {}
+            for path in paths:
+                for i in range(len(path) - 1):
+                    next_hops.setdefault(path[i], set()).add(path[i+1])
+
+            match = _build_match(src_host["mac"], dst_host["mac"], src_host.get("ip"), dst_host.get("ip"), intent.match)
+            
+            for current_node, next_nodes in next_hops.items():
+                dpid = topo_manager.get_switch_dpid(current_node)
+                if not dpid: continue
+                if len(next_nodes) == 1:
+                    out_port_raw = topo_manager.get_link_port(current_node, list(next_nodes)[0])
+                    if out_port_raw:
+                        out_port = int(out_port_raw, 16) if isinstance(out_port_raw, str) else int(out_port_raw)
+                        primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match, actions=[{"type": "OUTPUT", "port": out_port}]))
+                else:
+                    group_id = _next_meter_id()
+                    group_ids.append(group_id)
+                    buckets = []
+                    port_desc_list = await ryu_client.get_port_desc(dpid)
+                    port_speeds = {p.get("port_no"): p.get("curr_speed", 1000000) for p in port_desc_list}
+                    for next_node in next_nodes:
+                        out_port_raw = topo_manager.get_link_port(current_node, next_node)
+                        if out_port_raw:
+                            out_port = int(out_port_raw, 16) if isinstance(out_port_raw, str) else int(out_port_raw)
+                            weight = max(1, int(port_speeds.get(out_port, 1000000) / 1000))
+                            buckets.append({"weight": weight, "actions": [{"type": "OUTPUT", "port": out_port}]})
+                    if buckets:
+                        primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.GROUP_ENTRY, dpid=dpid, extra={"type": "SELECT", "group_id": group_id, "buckets": buckets}))
+                        primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match, actions=[{"type": "GROUP", "group_id": group_id}]))
+            
+            dst_port_raw = dst_host.get("port")
+            dst_port = int(dst_port_raw, 16) if isinstance(dst_port_raw, str) else (int(dst_port_raw) if dst_port_raw else 0)
+            if dst_port:
+                primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dst_dpid, cookie=cookie, priority=prio, match=match, actions=[{"type": "OUTPUT", "port": dst_port}]))
+
+        try:
+            for src in src_hosts:
+                for dst in dst_hosts:
+                    if src["id"] == dst["id"]: continue
+                    await install_multipath(src, dst)
+                    if intent.direction == "bidirectional":
+                        await install_multipath(dst, src)
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
+
+        import asyncio
+        group_prims = [p for p in primitives if p.primitive_type == PrimitiveType.GROUP_ENTRY]
+        flow_prims = [p for p in primitives if p.primitive_type == PrimitiveType.FLOW_ENTRY]
+        
+        # 必须严格保证：先下发 Group Table
+        if group_prims:
+            group_results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in group_prims))
+            if not all(group_results):
+                return {"success": False, "error": "部分交换机不支持 Group Table，智能多路径规则下发失败。"}
+        
+        # Group Table 生效后，再下发引用它的 Flow Table
+        if flow_prims:
+            flow_results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in flow_prims))
+            if not all(flow_results):
+                for d in topo_manager.get_all_switch_dpids(): await ryu_client.delete_flows_by_cookie(d, cookie)
+                return {"success": False, "error": "流表规则下发失败。"}
+
+        _active_policies[intent_id] = ActivePolicy(
+            id=intent_id, policy_type=PolicyType.MULTIPATH, scope=intent.scope,
+            source_nodes=intent.source_nodes, target_nodes=intent.target_nodes, exclude_nodes=intent.exclude_nodes,
+            intent_action=intent.action, action_params={},
+            match=intent.match.model_dump() if intent.match else None,
+            description=f"多路径智能加权 (WCMP): {len(src_hosts)} ↔ {len(dst_hosts)}",
+            ryu_cookies=[cookie], meter_ids=group_ids, created_at=time.time()
+        )
+        save_policies(_active_policies, _meter_counter)
+        return {"success": True, "type": "multipath", "message": f"成功启用了带带宽感知 (WCMP) 的链路多路径负载均衡！"}
+
     # ── 接口 ──────────────────────────────────────────────
 
     def get_active_policies(self) -> List[Dict]:
@@ -486,6 +585,7 @@ class PolicyExecutor:
                 await ryu_client.delete_flows_by_cookie(dpid, cookie)
             for mid in pol.meter_ids:
                 await ryu_client.delete_primitive(NetworkPrimitive(primitive_type=PrimitiveType.METER_ENTRY, dpid=dpid, extra={"meter_id": mid}))
+                await ryu_client.delete_primitive(NetworkPrimitive(primitive_type=PrimitiveType.GROUP_ENTRY, dpid=dpid, extra={"group_id": mid}))
 
         desc = pol.description
         del _active_policies[policy_id]

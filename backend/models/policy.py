@@ -18,6 +18,7 @@ class PolicyType(str, Enum):
     PORT_MIRROR= "port_mirror"
     VLAN       = "vlan"
     MONITOR    = "monitor"
+    MULTIPATH  = "multipath"
 
 
 class ActivePolicy(BaseModel):

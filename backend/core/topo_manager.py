@@ -171,6 +171,44 @@ class TopoManager:
                     queue.append((neighbor, path + [neighbor]))
         return []
 
+    def get_all_shortest_paths(self, src_id: str, dst_id: str) -> List[List[str]]:
+        """使用 BFS 算法计算拓扑中所有等价的最短路径"""
+        if src_id == dst_id:
+            return [[src_id]]
+            
+        links = self._topology.get("links", [])
+        graph = {}
+        for link in links:
+            s, t = link["source"], link["target"]
+            graph.setdefault(s, set()).add(t)
+            graph.setdefault(t, set()).add(s)
+            
+        queue = [(src_id, [src_id])]
+        shortest_paths = []
+        min_length = float('inf')
+        distances = {src_id: 0}
+        
+        while queue:
+            current, path = queue.pop(0)
+            
+            if len(path) > min_length:
+                break
+                
+            if current == dst_id:
+                if len(path) < min_length:
+                    min_length = len(path)
+                    shortest_paths = [path]
+                elif len(path) == min_length:
+                    shortest_paths.append(path)
+                continue
+                
+            for neighbor in graph.get(current, []):
+                if neighbor not in distances or distances[neighbor] >= len(path):
+                    distances[neighbor] = len(path)
+                    queue.append((neighbor, path + [neighbor]))
+                    
+        return shortest_paths
+
     def get_link_port(self, src_id: str, dst_id: str) -> Optional[int]:
         """获取从 src_id 走向 dst_id 时，在 src_id 上的出端口号"""
         for link in self._topology.get("links", []):

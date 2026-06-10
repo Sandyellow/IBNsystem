@@ -37,6 +37,7 @@ const ACTION_ICONS = {
 
 // 快捷操作模板
 const QUICK_ACTIONS = [
+  { label: '负载均衡', text: '为 H1 和 H2 之间的双向流量开启多路径负载均衡', icon: <ArrowRightLeft size={12} /> },
   { label: '访问控制', text: '单向拒绝 H1 访问 H3 的 SSH 服务', icon: <ShieldAlert size={12} /> },
   { label: '批量限速', text: '除了 H3 外，将 H1 到所有主机的带宽限制在 5M', icon: <Clock4 size={12} /> },
   { label: '划分VLAN', text: '把 H1 和 H2 划分到 VLAN 10', icon: <Network size={12} /> },
