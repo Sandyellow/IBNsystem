@@ -1,1 +1,1 @@
-# models package
+"""数据模型层 — 意图、网络拓扑、策略的 Pydantic 模型定义"""

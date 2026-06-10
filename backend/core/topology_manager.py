@@ -78,6 +78,8 @@ def _is_placeholder_mac(mac: str) -> bool:
 
 
 class TopoManager:
+    """拓扑与主机状态管理器，从 Ryu API 获取拓扑并动态发现主机信息"""
+
     def __init__(self):
         self._topology: Dict[str, Any] = {"nodes": [], "links": [], "timestamp": 0.0}
         self._hosts: List[HostInfo] = []  # 初始为空，等待动态发现
@@ -103,6 +105,7 @@ class TopoManager:
             logger.warning(f"[TopoManager] 无法获取动态主机配置: {e}。当前 _hosts 保持不变。")
 
     def get_host(self, host_id: Optional[str]) -> Optional[HostInfo]:
+        """根据主机 ID 获取主机信息"""
         if not host_id:
             return None
         for h in self._hosts:
@@ -111,6 +114,7 @@ class TopoManager:
         return None
 
     def get_all_hosts(self) -> List[HostInfo]:
+        """获取所有已发现的主机列表"""
         return list(self._hosts)
 
     # ── 交换机 dpid 解析 ───────────────────────────────────
@@ -362,16 +366,18 @@ class TopoManager:
             self._ryu_connected = False
 
     def on_topology_update(self, cb: Callable):
+        """注册拓扑更新回调"""
         self._callbacks.append(cb)
 
-    # ── 后台轮询 ───────────────────────────────────────────
     async def start_polling(self):
+        """启动后台拓扑轮询"""
         await self.fetch_host_config()
         await self.refresh()
         self._poll_task = asyncio.create_task(self._poll_loop())
         logger.info(f"[TopoManager] 轮询已启动，间隔 {settings.POLL_INTERVAL}s")
 
     async def stop_polling(self):
+        """停止后台拓扑轮询"""
         if self._poll_task:
             self._poll_task.cancel()
             try:
@@ -380,6 +386,7 @@ class TopoManager:
                 pass
 
     async def _poll_loop(self):
+        """后台轮询循环：定时刷新拓扑数据"""
         while True:
             try:
                 await self.refresh()
@@ -388,6 +395,7 @@ class TopoManager:
             await asyncio.sleep(settings.POLL_INTERVAL)
 
     def get_status(self) -> Dict:
+        """获取拓扑管理器运行状态摘要"""
         return {
             "ryu_connected": self._ryu_connected,
             "node_count": len(self._topology.get("nodes", [])),

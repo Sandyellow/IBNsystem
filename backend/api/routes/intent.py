@@ -112,12 +112,14 @@ async def process_intent(req: IntentRequest, background_tasks: BackgroundTasks):
 
 @router.get("/records")
 async def list_records(limit: int = 20) -> List[dict]:
+    """获取最近意图处理记录列表"""
     records = list(reversed(list(_records.values())))[:limit]
     return [r.model_dump() for r in records]
 
 
 @router.get("/records/{intent_id}")
 async def get_record(intent_id: str):
+    """根据 ID 获取单条意图处理记录"""
     record = _records.get(intent_id)
     if not record:
         raise HTTPException(404, "记录不存在")

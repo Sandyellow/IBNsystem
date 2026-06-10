@@ -16,7 +16,7 @@ Topology = Union[Dict[str, Any], TopologyModel]
 
 logger = logging.getLogger(__name__)
 
-# ─── 高危操作（需要用户二次确认）────────────────────────────────────────────
+# ── 高危操作（需要用户二次确认）────────────────────────────────────────────
 HIGH_RISK_ACTIONS = {IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}
 
 # 绝对禁止的参数组合（安全红线）
@@ -24,14 +24,14 @@ FORBIDDEN_COMBOS = [
     # 在 _validate_security_policy 中处理
 ]
 
-# ─── 查询类 action（不参与冲突检测）─────────────────────────────────────────
+# ── 查询类 action（不参与冲突检测）─────────────────────────────────────────
 QUERY_ACTIONS = {
     IntentAction.QUERY_TOPOLOGY,
     IntentAction.QUERY_FLOWS,
     IntentAction.QUERY_PORT_STATS,
 }
 
-# ─── 策略身份字段注册表 ───────────────────────────────────────────────────
+# ── 策略身份字段注册表 ───────────────────────────────────────────────────
 POLICY_IDENTITY_FIELDS: dict[IntentAction, set[str]] = {
     IntentAction.BLOCK_TRAFFIC:    {"source_nodes", "target_nodes", "scope"},
     IntentAction.ALLOW_TRAFFIC:    {"source_nodes", "target_nodes", "scope"},
@@ -46,7 +46,7 @@ POLICY_IDENTITY_FIELDS: dict[IntentAction, set[str]] = {
     IntentAction.MONITOR_ALERT:    {"source_nodes", "target_nodes", "scope"},
 }
 
-# ─── Action 互斥关系注册表 ─────────────────────────────────────────────────
+# ── Action 互斥关系注册表 ─────────────────────────────────────────────────
 MUTUALLY_EXCLUSIVE_PAIRS: set[frozenset[IntentAction]] = {
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.ALLOW_TRAFFIC}),
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.REDIRECT_TRAFFIC}),
@@ -59,6 +59,7 @@ _CONFLICT_ACTIONS = set(POLICY_IDENTITY_FIELDS.keys())
 
 
 class IntentValidator:
+    """意图策略验证器，执行三层验证：拓扑校验 → 安全策略 → 冲突检测"""
 
     async def validate(
         self,
@@ -66,6 +67,7 @@ class IntentValidator:
         topology: Topology,
         intent_id: str = "",
     ) -> IntentValidationReport:
+        """执行三层验证：拓扑校验 → 安全策略 → 冲突检测"""
         layers: List[ValidationResult] = []
 
         l1 = self._validate_topology_verification(intent, topology)
@@ -99,6 +101,7 @@ class IntentValidator:
         return report
 
     def _validate_topology_verification(self, intent: ParsedIntent, topology: Topology) -> ValidationResult:
+        """验证意图涉及的节点是否存在于当前拓扑中"""
         nodes_list = topology.get("nodes", []) if isinstance(topology, dict) else getattr(topology, "nodes", [])
 
         known_nodes = {n.get("id") if isinstance(n, dict) else getattr(n, "id", None) for n in nodes_list}
@@ -141,6 +144,7 @@ class IntentValidator:
         )
 
     def _validate_security_policy(self, intent: ParsedIntent) -> ValidationResult:
+        """安全策略验证：检查高危操作和无目标的全局操作"""
         for check in FORBIDDEN_COMBOS:
             pass # reserved for future lambdas
             
@@ -159,6 +163,7 @@ class IntentValidator:
         )
 
     def _validate_conflict_detection(self, intent: ParsedIntent, intent_id: str = "") -> ValidationResult:
+        """冲突检测：检查新意图是否与已有活跃策略冲突"""
         if intent.action in QUERY_ACTIONS:
             return ValidationResult(
                 layer=ValidationLayer.CONFLICT_DETECTION, passed=True,
@@ -266,6 +271,7 @@ class IntentValidator:
         )
 
     def _extract_identity(self, intent: ParsedIntent, fields: set[str]) -> tuple | None:
+        """从意图中提取策略身份特征，用于冲突检测对比"""
         values = []
         field_map = {
             "source_nodes": frozenset(intent.source_nodes) if intent.source_nodes else None,
@@ -287,6 +293,7 @@ class IntentValidator:
         return tuple(values)
 
     def _extract_policy_identity(self, pol: dict, fields: set[str]) -> tuple | None:
+        """从已有策略字典中提取身份特征，用于冲突检测对比"""
         values = []
         field_map = {
             "source_nodes": frozenset(pol.get("source_nodes", [])),

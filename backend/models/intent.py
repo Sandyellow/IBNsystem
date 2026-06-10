@@ -1,3 +1,5 @@
+"""意图模型 — 定义意图解析、验证、执行所需的 Pydantic 数据模型"""
+
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union, Literal
 from pydantic import BaseModel, Field
@@ -5,18 +7,16 @@ from enum import Enum
 
 
 class IntentAction(str, Enum):
-    # 查询类
+    """网络意图操作类型枚举"""
     QUERY_TOPOLOGY   = "query_topology"
     QUERY_FLOWS      = "query_flows"
     QUERY_PORT_STATS = "query_port_stats"
-    # 控制类
     BLOCK_TRAFFIC    = "block_traffic"
     ALLOW_TRAFFIC    = "allow_traffic"
     RATE_LIMIT       = "rate_limit"
     SET_PRIORITY     = "set_priority"
     REDIRECT_TRAFFIC = "redirect_traffic"
     CLEAR_FLOWS      = "clear_flows"
-    # 扩展业务能力
     ACL              = "acl"
     QOS_MARK         = "qos_mark"
     PORT_MIRROR      = "port_mirror"
@@ -26,11 +26,13 @@ class IntentAction(str, Enum):
 
 
 class IntentScope(str, Enum):
+    """策略作用范围：特定节点或全网"""
     SPECIFIC = "specific"
     ALL = "all"
 
 
 class IntentStatus(str, Enum):
+    """意图处理生命周期状态"""
     PENDING   = "pending"
     PARSING   = "parsing"
     EXECUTING = "executing"
@@ -52,27 +54,35 @@ class MatchCondition(BaseModel):
 
 
 class RateLimitParams(BaseModel):
+    """限速参数"""
     bandwidth_mbps: float = Field(..., description="限制带宽，单位Mbps")
 
 class SetPriorityParams(BaseModel):
+    """优先级参数"""
     priority: int = Field(..., description="流表优先级")
 
 class RedirectTrafficParams(BaseModel):
+    """流量重定向参数"""
     via_switch: str = Field(..., description="中转交换机名称，如 's2'")
 
 class QosMarkParams(BaseModel):
+    """QoS 标记参数"""
     dscp: int = Field(..., description="要标记的DSCP值 (0-63)")
 
 class PortMirrorParams(BaseModel):
+    """端口镜像参数"""
     mirror_to_port: str = Field(..., description="镜像流量的目的端口或主机名称")
 
 class VlanParams(BaseModel):
+    """VLAN 划分参数"""
     vlan_id: int = Field(..., description="VLAN ID")
 
 class MonitorAlertParams(BaseModel):
+    """监控告警参数"""
     threshold_kbps: float = Field(..., description="流量告警阈值 (Kbps)")
 
 class MultipathParams(BaseModel):
+    """多路径负载均衡参数（当前无额外参数）"""
     pass
 
 
@@ -108,18 +118,19 @@ class ParsedIntent(BaseModel):
 
 
 class ClarificationOption(BaseModel):
+    """澄清选项"""
     label: str = Field(description="选项简短标签，如 '选项A'")
     description: str = Field(description="选项的详细描述")
     suggested_input: str = Field(description="用户如果选择此项，应该输入的精确指令")
 
 class ClarificationNeeded(BaseModel):
-    """当用户指令语义模糊（例如方向不明、范围不清）时调用此工具，返回澄清选项"""
+    """当用户指令语义模糊时调用，返回澄清选项"""
     reason: str = Field(description="解释为什么需要澄清（存在什么歧义）")
     options: List[ClarificationOption] = Field(description="提供给用户的几种可能选项")
 
 
 class IntentRequest(BaseModel):
-    """用户输入的自然语言意图"""
+    """用户输入的自然语言意图请求"""
     text: str
     session_id: Optional[str] = None
 
@@ -128,8 +139,8 @@ class IntentRecord(BaseModel):
     """完整意图处理记录"""
     id: str
     user_text: str
-    parsed_intents: List[ParsedIntent] = Field(default_factory=list) # 改造为列表，支持复合指令
-    parsed_intent: Optional[ParsedIntent] = None # 保留此字段用于向后兼容或展示主意图
+    parsed_intents: List[ParsedIntent] = Field(default_factory=list)
+    parsed_intent: Optional[ParsedIntent] = None
     status: IntentStatus = IntentStatus.PENDING
     llm_retries: int = 0
     execution_result: Optional[Dict[str, Any]] = None
@@ -139,18 +150,21 @@ class IntentRecord(BaseModel):
 
 
 class ValidationLayer(str, Enum):
+    """验证层级枚举"""
     TOPOLOGY_VERIFICATION = "topology_verification"
     SECURITY_POLICY = "security_policy"
     CONFLICT_DETECTION = "conflict_detection"
 
 
 class ConflictSeverity(str, Enum):
+    """冲突严重程度枚举"""
     DUPLICATE = "duplicate"
     OVERRIDE = "override"
     MUTUALLY_EXCLUSIVE = "mutually_exclusive"
 
 
 class ConflictInfo(BaseModel):
+    """策略冲突信息"""
     policy_id: str
     severity: ConflictSeverity
     description: str
@@ -159,6 +173,7 @@ class ConflictInfo(BaseModel):
 
 
 class ValidationResult(BaseModel):
+    """单层验证结果"""
     layer: ValidationLayer
     passed: bool
     message: str
@@ -166,6 +181,7 @@ class ValidationResult(BaseModel):
     conflicts: List[ConflictInfo] = Field(default_factory=list)
 
 class IntentValidationReport(BaseModel):
+    """意图验证综合报告"""
     overall_passed: bool
     layers: List[ValidationResult]
     requires_confirmation: bool = False

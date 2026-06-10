@@ -1,3 +1,5 @@
+"""策略模型 — 定义活跃策略的 Pydantic 数据模型与策略类型枚举"""
+
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
@@ -8,6 +10,7 @@ from models.intent import IntentAction
 
 
 class PolicyType(str, Enum):
+    """策略类型枚举"""
     BLOCK      = "block"
     ALLOW      = "allow"
     RATE_LIMIT = "rate_limit"
@@ -23,23 +26,19 @@ class PolicyType(str, Enum):
 
 class ActivePolicy(BaseModel):
     """记录 IBN 系统当前已下发的自定义策略"""
-    id: str                           # intent_id（唯一标识）
+    id: str
     policy_type: PolicyType
-    
-    # 匹配范围相关
     scope: str = "specific"
     source_nodes: List[str] = []
     target_nodes: List[str] = []
     exclude_nodes: List[str] = []
     target_switch: Optional[str] = None
-    
-    intent_action: Optional[IntentAction] = None  # 原始的 IntentAction 类型（用于重建流表分发）
-    action_params: Dict[str, Any] = {}   # 保存原始完整参数
-    match: Optional[Dict[str, Any]] = None # 保存完整的高级匹配条件
-    
+    intent_action: Optional[IntentAction] = None
+    action_params: Dict[str, Any] = {}
+    match: Optional[Dict[str, Any]] = None
     description: str = ""
-    ryu_cookies: List[int] = []       # 关联的 Ryu flow cookie，用于精准删除
-    meter_ids: List[int] = []         # 关联的 Meter ID
+    ryu_cookies: List[int] = []
+    meter_ids: List[int] = []
     created_at: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:

@@ -47,6 +47,7 @@ llm_with_tools = llm.bind_tools(tools + [IntentList, ClarificationNeeded])
 
 # 核心 Agent 节点
 async def agent_node(state: IBNState):
+    """LangGraph Agent 节点：调用 LLM 解析用户意图并决定下一步工具调用"""
     messages = state["messages"]
 
     # System Prompt 定义
@@ -109,6 +110,7 @@ async def agent_node(state: IBNState):
 
 # 路由逻辑
 def should_continue(state: IBNState) -> Literal["tools", "execute_and_finish", "__end__"]:
+    """路由函数：根据 LLM 输出的 tool_calls 决定下一步走向"""
     messages = state["messages"]
     last_message = messages[-1]
 
@@ -123,6 +125,7 @@ def should_continue(state: IBNState) -> Literal["tools", "execute_and_finish", "
 
 # 执行与终结节点
 async def execute_node(state: IBNState):
+    """执行与终结节点：解析 LLM 输出的 IntentList 或 ClarificationNeeded，执行策略或返回澄清"""
     messages = state["messages"]
     last_message = messages[-1]
     intent_id = state["intent_id"]
@@ -244,6 +247,7 @@ workflow.add_conditional_edges("agent", should_continue)
 workflow.add_edge("tools", "agent")
 
 def check_finish_route(state: IBNState) -> Literal["agent", "__end__"]:
+    """检查执行结果，决定是结束还是回到 Agent 重试"""
     if state.get("execution_result") is not None:
         return "__end__"
     return "agent"

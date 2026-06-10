@@ -1,1 +1,1 @@
-# routes package
+"""路由模块 — 网络数据、意图处理、调试与 WebSocket 端点"""

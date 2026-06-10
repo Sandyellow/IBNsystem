@@ -1,3 +1,5 @@
+"""端到端集成测试套件 — 验证拓扑发现、流量隔离、限速、优先级等网络策略能力"""
+
 import sys
 import os
 import json
@@ -24,10 +26,11 @@ from core.ryu_client import ryu_client
 from core.topology_manager import topo_manager
 from core.policy_executor import policy_executor, _make_cookie
 
-# ─── 1. 测试框架核心定义 ──────────────────────────────────────────────────────
+# ── 1. 测试框架核心定义 ──────────────────────────────────────────────────────
 
 class TestContext:
-    """测试上下文 — 维护全局状态与客户端连接"""
+    """测试上下文，维护全局状态与 HTTP 客户端连接"""
+
     def __init__(self, vm_agent_url: str = None, api_key: str = "IBN-Debug-Secret-Key"):
         self.vm_agent_url = vm_agent_url or os.getenv("VM_AGENT_URL", "http://127.0.0.1:5000")
         self.vm_agent_api_key = api_key
@@ -45,7 +48,7 @@ class TestContext:
         self.logs.append(formatted)
 
     async def exec_mininet_cmd(self, command: str) -> Dict[str, Any]:
-        """通过 VM Agent 提供的加固接口在 Mininet 仿真环境执行指令"""
+        """通过 VM Agent 在 Mininet 仿真环境中执行命令"""
         headers = {"X-API-Key": self.vm_agent_api_key}
         try:
             r = await self.http_client.post(
@@ -67,6 +70,7 @@ class TestContext:
 
 class BaseNetworkTestCase:
     """可扩展网络能力测试用例基类"""
+
     @property
     def name(self) -> str:
         raise NotImplementedError
@@ -85,6 +89,7 @@ class BaseNetworkTestCase:
 
 class TestRegistry:
     """测试用例注册中心"""
+
     def __init__(self):
         self._cases: Dict[str, BaseNetworkTestCase] = {}
 
@@ -99,7 +104,7 @@ class TestRegistry:
 
 registry = TestRegistry()
 
-# ─── 2. 网络能力测试用例实现 ───────────────────────────────────────────
+# ── 2. 网络能力测试用例实现 ───────────────────────────────────────────
 
 class TopologyDiscoveryTestCase(BaseNetworkTestCase):
     @property
@@ -524,7 +529,7 @@ registry.register(SetPriorityTestCase())
 registry.register(RedirectTrafficTestCase())
 registry.register(ClearFlowsTestCase())
 
-# ─── 3. 运行控制引擎与诊断生成 ──────────────────────────────────────────────────────
+# ── 3. 运行控制引擎与诊断生成 ──────────────────────────────────────────────────────
 
 async def run_pipeline(run_cases: List[str]) -> Dict[str, Any]:
     ctx = TestContext()

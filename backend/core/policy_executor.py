@@ -54,8 +54,10 @@ def _build_match(src_mac: str, dst_mac: str, src_ip: Optional[str], dst_ip: Opti
 
 
 class PolicyExecutor:
+    """策略执行器，将 ParsedIntent 映射为网络原语并通过 Ryu 客户端下发到交换机"""
 
     async def execute(self, intent: ParsedIntent, intent_id: str) -> Dict[str, Any]:
+        """根据意图类型分发到对应的处理器执行"""
         action = intent.action
         try:
             handlers = {
@@ -86,6 +88,7 @@ class PolicyExecutor:
     # ── 查询操作 ──────────────────────────────────────────
 
     async def _query_topology(self, intent: ParsedIntent, _: str) -> Dict:
+        """查询当前网络拓扑"""
         topo = topo_manager.topology
         nodes = topo.get("nodes", [])
         links = topo.get("links", [])
@@ -99,6 +102,7 @@ class PolicyExecutor:
         }
 
     async def _query_flows(self, intent: ParsedIntent, _: str) -> Dict:
+        """查询交换机流表"""
         sw = intent.target_switch
         if sw:
             dpid = topo_manager.get_switch_dpid(sw)
@@ -111,6 +115,7 @@ class PolicyExecutor:
         return {"success": True, "type": "query_flows", "data": all_flows, "message": f"共 {total} 条流表"}
 
     async def _query_port_stats(self, intent: ParsedIntent, _: str) -> Dict:
+        """查询交换机端口统计"""
         sw = intent.target_switch
         dpids = [topo_manager.get_switch_dpid(sw)] if sw else topo_manager.get_all_switch_dpids()
         stats = {str(dpid): await ryu_client.get_port_stats(dpid) for dpid in dpids if dpid}
@@ -132,6 +137,7 @@ class PolicyExecutor:
         return res
         
     def _get_target_dpids(self, src_hosts: List[Dict], dst_hosts: List[Dict]) -> Set[int]:
+        """根据源和目标主机解析涉及的交换机 DPID 集合"""
         dpids = set()
         for h in src_hosts + dst_hosts:
             sw_name = h.get("connected_switch")
@@ -145,6 +151,7 @@ class PolicyExecutor:
     # ── 控制操作 ──────────────────────────────────────────
 
     async def _block_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """下发流量阻断策略，在交换机上安装 DROP 流表规则"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         
         # 检查是否是全网隔离（wildcard block）
@@ -207,6 +214,7 @@ class PolicyExecutor:
         return {"success": True, "type": "block_traffic", "message": f"成功隔离 {len(src_hosts)} 台主机与 {msg_target} 的通信"}
 
     async def _allow_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """下发流量允许策略，安装高优先级 NORMAL 转发规则"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
         if not src_hosts or not dst_hosts:
@@ -247,7 +255,7 @@ class PolicyExecutor:
         return {"success": True, "type": "allow_traffic", "message": f"成功下发允许规则：{len(src_hosts)} 到 {len(dst_hosts)} 台主机"}
 
     async def _rate_limit(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        # 限速逻辑，简化为只在一对主机间演示，批量的话需要创建多个 Meter
+        """下发带宽限速策略，通过 Meter 表实现流量速率限制"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
         if not src_hosts or not dst_hosts: return {"success": False, "error": "主机为空"}
@@ -289,6 +297,7 @@ class PolicyExecutor:
         return {"success": True, "type": "rate_limit", "message": f"{dir_text}限速 {bw_mbps}Mbps 成功"}
 
     async def _set_priority(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """下发优先级转发策略，安装指定优先级的 NORMAL 转发规则"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
         if not src_hosts or not dst_hosts: return {"success": False, "error": "主机为空"}
@@ -321,9 +330,11 @@ class PolicyExecutor:
         return {"success": True, "type": "set_priority", "message": f"已设置 {len(primitives)} 条优先转发规则"}
 
     async def _redirect_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """流量重定向（暂未完全适配多跳逻辑）"""
         return {"success": False, "error": "Redirect 在 ControllerAdapter 重构中暂未完全适配多跳逻辑"}
 
     async def _clear_flows(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """清除指定交换机上所有 IBN 自定义流表规则"""
         sw = intent.target_switch
         dpids = [topo_manager.get_switch_dpid(sw)] if sw else topo_manager.get_all_switch_dpids()
         
@@ -349,9 +360,11 @@ class PolicyExecutor:
     # ── 高级扩展能力 ──────────────────────────────────────
 
     async def _acl(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """ACL 访问控制（复用阻断逻辑）"""
         return await self._block_traffic(intent, intent_id)
 
     async def _qos_mark(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """下发 QoS DSCP 标记策略"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
         dscp = int(intent.action_params.get("dscp", 0) if isinstance(intent.action_params, dict) else intent.action_params.dscp)
@@ -392,9 +405,11 @@ class PolicyExecutor:
         return {"success": True, "message": f"成功下发 DSCP = {dscp} 标记策略"}
 
     async def _port_mirror(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """端口镜像（尚未实现）"""
         return {"success": False, "error": "端口镜像尚未实现"}
 
     async def _vlan(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """下发 VLAN 划分策略，将指定主机隔离到独立 VLAN"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         if not src_hosts:
             return {"success": False, "error": "目标主机为空"}
@@ -471,9 +486,11 @@ class PolicyExecutor:
         return {"success": True, "type": "vlan", "message": f"成功将 {len(src_hosts)} 台主机划分至 VLAN {vid}"}
 
     async def _monitor_alert(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """监控告警（前端图表观测即可，后端暂未引入独立告警进程）"""
         return {"success": False, "error": "监控告警规则目前只需在前端通过图表观测即可，后端暂未引入单独告警进程"}
 
     async def _multipath(self, intent: ParsedIntent, intent_id: str) -> Dict:
+        """下发多路径负载均衡策略，使用 Group Table 实现 WCMP"""
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
         dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
         if not src_hosts or not dst_hosts:
@@ -584,9 +601,11 @@ class PolicyExecutor:
     # ── 接口 ──────────────────────────────────────────────
 
     def get_active_policies(self) -> List[Dict]:
+        """获取当前所有活跃策略"""
         return [p.model_dump() for p in _active_policies.values()]
 
     async def delete_policy(self, policy_id: str) -> Tuple[bool, str]:
+        """撤销指定策略，从所有交换机删除关联的流表、Meter 和 Group"""
         pol = _active_policies.get(policy_id)
         if not pol: return False, "策略不存在"
         
@@ -604,6 +623,7 @@ class PolicyExecutor:
         return True, f"已撤销: {desc}"
 
     async def sync_with_data_plane(self):
+        """与数据平面同步（预留接口）"""
         pass
 
 policy_executor = PolicyExecutor()

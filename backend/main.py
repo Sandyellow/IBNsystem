@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动：注册回调 → 启动拓扑轮询
+    """应用生命周期管理：启动时连接 Ryu 并开始轮询，关闭时清理资源"""
     topo_manager.on_topology_update(ws_manager.broadcast_topology)
     await topo_manager.start_polling()
     await stats_manager.start_polling(interval=3.0)
@@ -70,6 +70,7 @@ app.include_router(ws_router)
 
 @app.get("/api/health")
 async def health():
+    """系统健康检查端点"""
     ryu_ok = await ryu_client.ping()
     return {
         "status": "ok",

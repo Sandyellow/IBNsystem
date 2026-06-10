@@ -20,6 +20,8 @@ from core.controller_adapter import ControllerAdapter, NetworkPrimitive, Primiti
 
 
 class RyuClient(ControllerAdapter):
+    """Ryu SDN 控制器 REST API 客户端，负责流表、Meter、Group 的下发与查询"""
+
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
         self._lock = asyncio.Lock()
@@ -35,14 +37,17 @@ class RyuClient(ControllerAdapter):
         return self._client
         
     async def connect(self):
+        """建立 HTTP 客户端连接"""
         await self._get()
 
     async def close(self):
+        """关闭 HTTP 客户端连接"""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
     # ── 连通性 ────────────────────────────────────────────
     async def ping(self) -> bool:
+        """测试 Ryu 控制器连通性"""
         try:
             c = await self._get()
             r = await c.get("/stats/switches")
@@ -53,6 +58,7 @@ class RyuClient(ControllerAdapter):
 
     # ── 拓扑 ──────────────────────────────────────────────
     async def get_topology_switches(self) -> List[Dict]:
+        """获取 Ryu 拓扑中的交换机列表"""
         try:
             c = await self._get()
             r = await c.get("/v1.0/topology/switches")
@@ -63,6 +69,7 @@ class RyuClient(ControllerAdapter):
             return []
 
     async def get_topology_links(self) -> List[Dict]:
+        """获取 Ryu 拓扑中的链路列表"""
         try:
             c = await self._get()
             r = await c.get("/v1.0/topology/links")
@@ -73,6 +80,7 @@ class RyuClient(ControllerAdapter):
             return []
 
     async def get_topology_hosts(self) -> List[Dict]:
+        """获取 Ryu 拓扑中的主机列表"""
         try:
             c = await self._get()
             r = await c.get("/v1.0/topology/hosts")
@@ -95,6 +103,7 @@ class RyuClient(ControllerAdapter):
 
     # ── 原语操作 ──────────────────────────────────────────
     async def apply_primitive(self, primitive: NetworkPrimitive) -> bool:
+        """根据原语类型分发到对应的下发方法"""
         if primitive.primitive_type == PrimitiveType.FLOW_ENTRY:
             entry = {
                 "dpid": primitive.dpid,
@@ -128,6 +137,7 @@ class RyuClient(ControllerAdapter):
         return False
 
     async def delete_primitive(self, primitive: NetworkPrimitive) -> bool:
+        """根据原语类型分发到对应的删除方法"""
         if primitive.primitive_type == PrimitiveType.FLOW_ENTRY:
             if primitive.cookie is not None:
                 return await self.delete_flows_by_cookie(primitive.dpid, primitive.cookie)
@@ -164,6 +174,7 @@ class RyuClient(ControllerAdapter):
             return False
 
     async def _delete_flow_strict(self, entry: Dict) -> bool:
+        """严格匹配删除单条流表"""
         try:
             c = await self._get()
             r = await c.post("/stats/flowentry/delete_strict", json=entry)
@@ -195,6 +206,7 @@ class RyuClient(ControllerAdapter):
             return False
 
     async def _add_meter(self, entry: Dict) -> bool:
+        """下发 Meter 表项"""
         try:
             c = await self._get()
             r = await c.post("/stats/meterentry/add", json=entry)
@@ -206,6 +218,7 @@ class RyuClient(ControllerAdapter):
             return False
 
     async def _delete_meter(self, dpid: int, meter_id: int) -> bool:
+        """删除 Meter 表项"""
         try:
             c = await self._get()
             r = await c.post("/stats/meterentry/delete", json={"dpid": dpid, "meter_id": meter_id})
@@ -216,6 +229,7 @@ class RyuClient(ControllerAdapter):
             return False
 
     async def _add_group(self, entry: Dict) -> bool:
+        """下发 Group 表项"""
         try:
             c = await self._get()
             r = await c.post("/stats/groupentry/add", json=entry)
@@ -227,6 +241,7 @@ class RyuClient(ControllerAdapter):
             return False
 
     async def _delete_group(self, dpid: int, group_id: int) -> bool:
+        """删除 Group 表项"""
         try:
             c = await self._get()
             r = await c.post("/stats/groupentry/delete", json={"dpid": dpid, "group_id": group_id})
@@ -250,6 +265,7 @@ class RyuClient(ControllerAdapter):
             return []
 
     async def get_port_stats(self, dpid: int) -> List[Dict]:
+        """获取指定交换机的端口统计"""
         try:
             c = await self._get()
             r = await c.get(f"/stats/port/{dpid}")
@@ -273,6 +289,7 @@ class RyuClient(ControllerAdapter):
             return []
 
     async def get_meter_config(self, dpid: int) -> List[Dict]:
+        """获取指定交换机的 Meter 配置"""
         try:
             c = await self._get()
             r = await c.get(f"/stats/meterconfig/{dpid}")

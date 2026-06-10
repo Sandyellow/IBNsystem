@@ -1,3 +1,5 @@
+"""控制器适配器抽象层 — 定义网络原语和 SDN 控制器适配器接口"""
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
@@ -46,18 +48,22 @@ class ControllerAdapter(ABC):
     # ── 拓扑 ──────────────────────────────────────────────
     @abstractmethod
     async def get_topology_switches(self) -> List[Dict]:
+        """获取拓扑中的交换机列表"""
         pass
 
     @abstractmethod
     async def get_topology_links(self) -> List[Dict]:
+        """获取拓扑中的链路列表"""
         pass
 
     @abstractmethod
     async def get_topology_hosts(self) -> List[Dict]:
+        """获取拓扑中的主机列表"""
         pass
 
     @abstractmethod
     async def get_switch_dpids(self) -> List[int]:
+        """获取所有交换机的 DPID 列表"""
         pass
 
     # ── 原语操作 ──────────────────────────────────────────
@@ -79,12 +85,15 @@ class ControllerAdapter(ABC):
     # ── 统计信息 ──────────────────────────────────────────
     @abstractmethod
     async def get_flows(self, dpid: int) -> List[Dict]:
+        """获取指定交换机的流表"""
         pass
 
     @abstractmethod
     async def get_port_stats(self, dpid: int) -> List[Dict]:
+        """获取指定交换机的端口统计"""
         pass
 
     @abstractmethod
     async def get_port_desc(self, dpid: int) -> List[Dict]:
+        """获取指定交换机的端口描述"""
         pass

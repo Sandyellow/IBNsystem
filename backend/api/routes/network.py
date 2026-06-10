@@ -1,7 +1,4 @@
-"""
-网络数据 API — 提供拓扑、流表、端口统计、Meter、活跃策略等真实数据
-所有数据直接来自 Ryu REST API，无模拟值
-"""
+"""网络数据 API — 拓扑、流表、端口统计、Meter、活跃策略的 REST 端点"""
 from __future__ import annotations
 import logging
 from fastapi import APIRouter

@@ -1,3 +1,5 @@
+"""端口流量统计管理器 — 定时采集各交换机端口速率并维护历史数据"""
+
 import asyncio
 import logging
 import time
@@ -14,6 +16,8 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_LEN = 40
 
 class StatsManager:
+    """端口流量统计管理器，定时采集各交换机端口速率并维护历史数据"""
+
     def __init__(self):
         # 结构: { dpid_str: deque([ { time: 'HH:MM:SS', '1_rx': 1024, '1_tx': 512, ... } ]) }
         self._history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=MAX_HISTORY_LEN))
@@ -25,6 +29,7 @@ class StatsManager:
         self._task: Optional[asyncio.Task] = None
 
     async def start_polling(self, interval: float = 3.0):
+        """启动后台流量统计轮询"""
         if self._running:
             return
         self._running = True
@@ -32,6 +37,7 @@ class StatsManager:
         logger.info(f"[StatsManager] 已启动端口流量历史采集，轮询间隔: {interval}s")
 
     async def stop_polling(self):
+        """停止后台流量统计轮询"""
         self._running = False
         if self._task:
             self._task.cancel()
@@ -43,6 +49,7 @@ class StatsManager:
         logger.info("[StatsManager] 端口流量历史采集已停止")
 
     async def _poll_loop(self, interval: float):
+        """后台轮询循环：定时采集各交换机端口速率"""
         while self._running:
             try:
                 dpids = topo_manager.get_all_switch_dpids()
