@@ -32,12 +32,14 @@ const ACTION_ICONS = {
   add_flow: <CheckSquare size={14} />,
   delete_flow: <Trash2 size={14} />,
   load_balance: <ActivitySquare size={14} />,
+  vlan: <Network size={14} />,
 }
 
 // 快捷操作模板
 const QUICK_ACTIONS = [
   { label: '访问控制', text: '单向拒绝 H1 访问 H3 的 SSH 服务', icon: <ShieldAlert size={12} /> },
   { label: '批量限速', text: '除了 H3 外，将 H1 到所有主机的带宽限制在 5M', icon: <Clock4 size={12} /> },
+  { label: '划分VLAN', text: '把 H1 和 H2 划分到 VLAN 10', icon: <Network size={12} /> },
   { label: '流量标记', text: '把 H1 到 H2 的视频流量的 DSCP 标记设为 46', icon: <ActivitySquare size={12} /> },
   { label: '恢复通信', text: '恢复 H1 和 H3 的通信', icon: <CheckSquare size={12} /> },
   { label: '优先覆盖', text: '以 800 的高优先级阻断 H1 和 H2 的通信', icon: <TrendingUp size={12} /> },

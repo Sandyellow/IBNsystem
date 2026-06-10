@@ -353,7 +353,80 @@ class PolicyExecutor:
         return {"success": False, "error": "端口镜像尚未实现"}
 
     async def _vlan(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        return {"success": False, "error": "VLAN 隔离尚未实现"}
+        src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
+        if not src_hosts:
+            return {"success": False, "error": "目标主机为空"}
+
+        vid = int(intent.action_params.get("vlan_id", 0) if isinstance(intent.action_params, dict) else intent.action_params.vlan_id)
+        if not vid:
+            return {"success": False, "error": "无效的 VLAN ID"}
+
+        cookie = _make_cookie(intent_id)
+        primitives = []
+        prio = intent.intent_priority if intent.intent_priority is not None else 600
+
+        for h_src in src_hosts:
+            src_mac = h_src["mac"]
+            port_raw = h_src.get("port")
+            sw_name = h_src.get("connected_switch")
+            dpid = topo_manager.get_switch_dpid(sw_name)
+            
+            if not port_raw or not dpid:
+                continue
+                
+            port = int(port_raw, 16) if isinstance(port_raw, str) else int(port_raw)
+
+            # 1. 允许同 VLAN 内成员互通 (Unicast)
+            for h_dst in src_hosts:
+                if h_src["id"] == h_dst["id"]:
+                    continue
+                match_uni = {"in_port": port, "eth_src": src_mac, "eth_dst": h_dst["mac"]}
+                actions_uni = [
+                    {"type": "PUSH_VLAN", "ethertype": 33024},
+                    {"type": "SET_FIELD", "field": "vlan_vid", "value": vid | 4096},
+                    {"type": "POP_VLAN"},
+                    {"type": "OUTPUT", "port": "NORMAL"}
+                ]
+                primitives.append(NetworkPrimitive(
+                    primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_uni, actions=actions_uni
+                ))
+
+            # 2. 允许该主机的广播流量 (ARP等) 
+            match_bcast = {"in_port": port, "eth_src": src_mac, "eth_dst": "ff:ff:ff:ff:ff:ff"}
+            actions_bcast = [
+                {"type": "PUSH_VLAN", "ethertype": 33024},
+                {"type": "SET_FIELD", "field": "vlan_vid", "value": vid | 4096},
+                {"type": "POP_VLAN"},
+                {"type": "OUTPUT", "port": "NORMAL"}
+            ]
+            primitives.append(NetworkPrimitive(
+                primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_bcast, actions=actions_bcast
+            ))
+
+            # 3. 隔离（丢弃）该主机发往非 VLAN 成员的任何其他流量 (降低优先级)
+            match_drop = {"in_port": port, "eth_src": src_mac}
+            primitives.append(NetworkPrimitive(
+                primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio - 1, match=match_drop, actions=[]
+            ))
+
+        if not primitives:
+            return {"success": False, "error": "无法解析主机的网络位置，划分 VLAN 失败"}
+
+        import asyncio
+        results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in primitives))
+
+        if not all(results):
+            for p in primitives: await ryu_client.delete_primitive(p)
+            return {"success": False, "error": "部分交换机硬件不支持该操作，流表下发失败"}
+
+        _active_policies[intent_id] = ActivePolicy(
+            id=intent_id, policy_type=PolicyType.VLAN, scope=intent.scope,
+            source_nodes=[h["id"] for h in src_hosts], target_nodes=[],
+            intent_action=intent.action, action_params={"vlan_id": vid},
+            ryu_cookies=[cookie], description=f"划分至 VLAN {vid}", created_at=time.time()
+        )
+        save_policies(_active_policies, _meter_counter)
+        return {"success": True, "type": "vlan", "message": f"成功将 {len(src_hosts)} 台主机划分至 VLAN {vid}"}
 
     async def _monitor_alert(self, intent: ParsedIntent, intent_id: str) -> Dict:
         return {"success": False, "error": "监控告警规则目前只需在前端通过图表观测即可，后端暂未引入单独告警进程"}
