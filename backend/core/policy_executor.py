@@ -68,13 +68,10 @@ class PolicyExecutor:
                 IntentAction.ALLOW_TRAFFIC:    self._allow_traffic,
                 IntentAction.RATE_LIMIT:       self._rate_limit,
                 IntentAction.SET_PRIORITY:     self._set_priority,
-                IntentAction.REDIRECT_TRAFFIC: self._redirect_traffic,
                 IntentAction.CLEAR_FLOWS:      self._clear_flows,
                 IntentAction.ACL:              self._acl,
                 IntentAction.QOS_MARK:         self._qos_mark,
-                IntentAction.PORT_MIRROR:      self._port_mirror,
                 IntentAction.VLAN:             self._vlan,
-                IntentAction.MONITOR_ALERT:    self._monitor_alert,
                 IntentAction.MULTIPATH:        self._multipath,
             }
             handler = handlers.get(action)
@@ -329,10 +326,6 @@ class PolicyExecutor:
         save_policies(_active_policies, _meter_counter)
         return {"success": True, "type": "set_priority", "message": f"已设置 {len(primitives)} 条优先转发规则"}
 
-    async def _redirect_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        """流量重定向（暂未完全适配多跳逻辑）"""
-        return {"success": False, "error": "Redirect 在 ControllerAdapter 重构中暂未完全适配多跳逻辑"}
-
     async def _clear_flows(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """清除指定交换机上所有 IBN 自定义流表规则"""
         sw = intent.target_switch
@@ -403,10 +396,6 @@ class PolicyExecutor:
         )
         save_policies(_active_policies, _meter_counter)
         return {"success": True, "message": f"成功下发 DSCP = {dscp} 标记策略"}
-
-    async def _port_mirror(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        """端口镜像（尚未实现）"""
-        return {"success": False, "error": "端口镜像尚未实现"}
 
     async def _vlan(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发 VLAN 划分策略，将指定主机隔离到独立 VLAN"""
@@ -484,10 +473,6 @@ class PolicyExecutor:
         )
         save_policies(_active_policies, _meter_counter)
         return {"success": True, "type": "vlan", "message": f"成功将 {len(src_hosts)} 台主机划分至 VLAN {vid}"}
-
-    async def _monitor_alert(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        """监控告警（前端图表观测即可，后端暂未引入独立告警进程）"""
-        return {"success": False, "error": "监控告警规则目前只需在前端通过图表观测即可，后端暂未引入单独告警进程"}
 
     async def _multipath(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发多路径负载均衡策略，使用 Group Table 实现 WCMP"""

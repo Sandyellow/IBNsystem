@@ -15,13 +15,10 @@ class IntentAction(str, Enum):
     ALLOW_TRAFFIC    = "allow_traffic"
     RATE_LIMIT       = "rate_limit"
     SET_PRIORITY     = "set_priority"
-    REDIRECT_TRAFFIC = "redirect_traffic"
     CLEAR_FLOWS      = "clear_flows"
     ACL              = "acl"
     QOS_MARK         = "qos_mark"
-    PORT_MIRROR      = "port_mirror"
     VLAN             = "vlan"
-    MONITOR_ALERT    = "monitor_alert"
     MULTIPATH        = "multipath"
 
 
@@ -61,40 +58,24 @@ class SetPriorityParams(BaseModel):
     """优先级参数"""
     priority: int = Field(..., description="流表优先级")
 
-class RedirectTrafficParams(BaseModel):
-    """流量重定向参数"""
-    via_switch: str = Field(..., description="中转交换机名称，如 's2'")
-
 class QosMarkParams(BaseModel):
     """QoS 标记参数"""
     dscp: int = Field(..., description="要标记的DSCP值 (0-63)")
 
-class PortMirrorParams(BaseModel):
-    """端口镜像参数"""
-    mirror_to_port: str = Field(..., description="镜像流量的目的端口或主机名称")
-
 class VlanParams(BaseModel):
     """VLAN 划分参数"""
     vlan_id: int = Field(..., description="VLAN ID")
-
-class MonitorAlertParams(BaseModel):
-    """监控告警参数"""
-    threshold_kbps: float = Field(..., description="流量告警阈值 (Kbps)")
 
 class MultipathParams(BaseModel):
     """多路径负载均衡参数（当前无额外参数）"""
     pass
 
 
-# 为简化大模型输出，使用 Union，Pydantic 会自动尝试匹配
 ActionParams = Union[
     RateLimitParams,
     SetPriorityParams,
-    RedirectTrafficParams,
     QosMarkParams,
-    PortMirrorParams,
     VlanParams,
-    MonitorAlertParams,
     MultipathParams,
     Dict[str, Any]
 ]

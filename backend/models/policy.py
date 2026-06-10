@@ -14,13 +14,10 @@ class PolicyType(str, Enum):
     BLOCK      = "block"
     ALLOW      = "allow"
     RATE_LIMIT = "rate_limit"
-    REDIRECT   = "redirect"
     PRIORITY   = "priority"
     ACL        = "acl"
     QOS_MARK   = "qos_mark"
-    PORT_MIRROR= "port_mirror"
     VLAN       = "vlan"
-    MONITOR    = "monitor"
     MULTIPATH  = "multipath"
 
 
