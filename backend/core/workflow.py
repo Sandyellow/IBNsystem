@@ -67,6 +67,10 @@ async def agent_node(state: IBNState):
   => action: block_traffic, scope: "all", source_nodes: ["h1"], target_nodes: [], direction: "unidirectional"
 - 排除操作："除了 h2 之外，阻断 h1 和所有人的通信"
   => action: block_traffic, scope: "all", source_nodes: ["h1"], target_nodes: [], exclude_nodes: ["h2"]
+- 隔离操作："仅允许 h1 和 h2 通信，阻断与其他所有主机(h3, h4)的通信"
+  => 输出包含两个对象的列表：
+     1. action: allow_traffic, source_nodes: ["h1"], target_nodes: ["h2"]
+     2. action: block_traffic, scope: "all", source_nodes: ["h1", "h2"], target_nodes: []
 - 条件匹配："限制 h1 到 h3 的 SSH 流量 (TCP 22)"
   => action: block_traffic, source_nodes: ["h1"], target_nodes: ["h3"], match: {"ip_proto": 6, "tcp_dst": 22}
 - 划分VLAN："把 h1 和 h2 划分到 vlan 10"

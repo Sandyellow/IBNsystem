@@ -9,6 +9,7 @@ from models.intent import IntentAction
 
 class PolicyType(str, Enum):
     BLOCK      = "block"
+    ALLOW      = "allow"
     RATE_LIMIT = "rate_limit"
     REDIRECT   = "redirect"
     PRIORITY   = "priority"

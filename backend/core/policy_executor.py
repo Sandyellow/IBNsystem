@@ -145,11 +145,14 @@ class PolicyExecutor:
 
     async def _block_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
         src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
-        dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
         
-        # 特殊情况：如果 dst 为空且 scope 为 ALL，则认为是隔离 src 与所有人
-        if not dst_hosts and intent.scope == IntentScope.ALL:
-            dst_hosts = [h for h in topo_manager.get_all_hosts() if h["id"] not in [s["id"] for s in src_hosts] and h["id"] not in intent.exclude_nodes]
+        # 检查是否是全网隔离（wildcard block）
+        is_wildcard = False
+        if not intent.target_nodes and intent.scope == IntentScope.ALL:
+            is_wildcard = True
+            dst_hosts = [{"id": "any", "mac": "any", "ip": "any", "connected_switch": None}]
+        else:
+            dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
 
         if not src_hosts or not dst_hosts:
             return {"success": False, "error": "源或目标主机解析为空"}
@@ -169,6 +172,20 @@ class PolicyExecutor:
                     if intent.direction == "bidirectional":
                         primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_rev, actions=[]))
 
+        # 为 exclude_nodes 自动生成高优先级的 ALLOW 规则，防止被 wildcard block 误杀
+        if is_wildcard and intent.exclude_nodes:
+            allow_hosts = [h for h in topo_manager.get_all_hosts() if h["id"] in intent.exclude_nodes]
+            if allow_hosts:
+                allow_dpids = self._get_target_dpids(src_hosts, allow_hosts)
+                for src in src_hosts:
+                    for dst in allow_hosts:
+                        match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
+                        match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
+                        for dpid in allow_dpids:
+                            primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio + 100, match=match_fwd, actions=[{"type": "OUTPUT", "port": "NORMAL"}]))
+                            if intent.direction == "bidirectional":
+                                primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio + 100, match=match_rev, actions=[{"type": "OUTPUT", "port": "NORMAL"}]))
+
         import asyncio
         results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in primitives))
         
@@ -181,29 +198,52 @@ class PolicyExecutor:
             source_nodes=intent.source_nodes, target_nodes=intent.target_nodes, exclude_nodes=intent.exclude_nodes,
             intent_action=intent.action, action_params=intent.action_params if isinstance(intent.action_params, dict) else intent.action_params.model_dump(),
             match=intent.match.model_dump() if intent.match else None,
-            description=f"隔离 {len(src_hosts)} ↔ {len(dst_hosts)} 台主机",
+            description=f"隔离 {len(src_hosts)} 台主机与{'全网' if is_wildcard else len(dst_hosts)}台主机的通信",
             ryu_cookies=[cookie], created_at=time.time()
         )
         save_policies(_active_policies, _meter_counter)
-        return {"success": True, "type": "block_traffic", "message": f"成功隔离 {len(src_hosts)} 到 {len(dst_hosts)} 台主机的通信"}
+        msg_target = "全网主机" if is_wildcard else f"{len(dst_hosts)} 台主机"
+        return {"success": True, "type": "block_traffic", "message": f"成功隔离 {len(src_hosts)} 台主机与 {msg_target} 的通信"}
 
     async def _allow_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
-        """简化版的撤销策略：根据 source_nodes 和 target_nodes 匹配要撤销的 Block 策略"""
-        removed_cookies = []
-        for pol_id, pol in list(_active_policies.items()):
-            if pol.policy_type == PolicyType.BLOCK:
-                # 简单匹配：如果源目标集合重合，则予以撤销（复杂逻辑可细化）
-                if set(intent.source_nodes) == set(pol.source_nodes) or intent.scope == "all":
-                    removed_cookies.extend(pol.ryu_cookies)
-                    del _active_policies[pol_id]
+        src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
+        dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
+        if not src_hosts or not dst_hosts:
+            return {"success": False, "error": "源或目标主机解析为空"}
 
+        cookie = _make_cookie(intent_id)
+        target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
+
+        primitives = []
+        # 使用比 Block (500) 更高的优先级
+        prio = intent.intent_priority if intent.intent_priority is not None else 600
+        for src in src_hosts:
+            for dst in dst_hosts:
+                match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
+                match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
+                
+                for dpid in target_dpids:
+                    primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_fwd, actions=[{"type": "OUTPUT", "port": "NORMAL"}]))
+                    if intent.direction == "bidirectional":
+                        primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_rev, actions=[{"type": "OUTPUT", "port": "NORMAL"}]))
+
+        import asyncio
+        results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in primitives))
+        
+        if not all(results):
+            for d in target_dpids: await ryu_client.delete_flows_by_cookie(d, cookie)
+            return {"success": False, "error": "批量下发允许流表失败，已回滚"}
+
+        _active_policies[intent_id] = ActivePolicy(
+            id=intent_id, policy_type=PolicyType.ALLOW, scope=intent.scope,
+            source_nodes=intent.source_nodes, target_nodes=intent.target_nodes, exclude_nodes=intent.exclude_nodes,
+            intent_action=intent.action, action_params=intent.action_params if isinstance(intent.action_params, dict) else intent.action_params.model_dump(),
+            match=intent.match.model_dump() if intent.match else None,
+            description=f"明确允许 {len(src_hosts)} ↔ {len(dst_hosts)} 台主机",
+            ryu_cookies=[cookie], created_at=time.time()
+        )
         save_policies(_active_policies, _meter_counter)
-        dpids = topo_manager.get_all_switch_dpids()
-        for dpid in dpids:
-            for cookie in removed_cookies:
-                await ryu_client.delete_flows_by_cookie(dpid, cookie)
-
-        return {"success": True, "type": "allow_traffic", "message": f"删除了 {len(removed_cookies)} 组隔离规则"}
+        return {"success": True, "type": "allow_traffic", "message": f"成功下发允许规则：{len(src_hosts)} 到 {len(dst_hosts)} 台主机"}
 
     async def _rate_limit(self, intent: ParsedIntent, intent_id: str) -> Dict:
         # 限速逻辑，简化为只在一对主机间演示，批量的话需要创建多个 Meter
