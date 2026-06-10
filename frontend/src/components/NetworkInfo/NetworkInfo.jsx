@@ -3,14 +3,13 @@ import useStore from '../../store/useStore'
 import FlowTable from '../FlowTable/FlowTable'
 import PortStats from '../PortStats/PortStats'
 import PolicyPanel from '../PolicyPanel/PolicyPanel'
-import { Network, ArrowRightLeft, Activity, ShieldCheck, Server, ShieldAlert, Cpu, AlertTriangle, AlertCircle, Info, CheckCircle2 } from 'lucide-react'
+import { Network, ArrowRightLeft, Activity, ShieldCheck, Server, Cpu } from 'lucide-react'
 
 const TABS = [
   { id: 'topo', label: '拓扑信息', icon: Network },
   { id: 'flows', label: '流表', icon: ArrowRightLeft },
   { id: 'ports', label: '端口统计', icon: Activity },
   { id: 'policies', label: '活跃策略', icon: ShieldCheck },
-  { id: 'alerts', label: '系统告警', icon: AlertTriangle },
 ]
 
 function TopoInfo() {
@@ -26,12 +25,11 @@ function TopoInfo() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* 状态概览 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
         {[
           { label: '交换机', value: switches.length, color: '#63b3ed' },
           { label: '主机', value: hosts.length, color: '#68d391' },
           { label: '总链路', value: links.length, color: '#f6e05e' },
-          { label: '活跃告警', value: networkStatus?.active_alerts || 0, color: '#fc814a' },
         ].map(item => (
           <div key={item.label} style={{
             background: '#ffffff',
@@ -130,60 +128,7 @@ function TopoInfo() {
   )
 }
 
-function timeAgo(ts) {
-  const diff = Math.floor(Date.now() / 1000 - ts)
-  if (diff < 60) return `${diff}s 前`
-  if (diff < 3600) return `${Math.floor(diff / 60)}m 前`
-  return `${Math.floor(diff / 3600)}h 前`
-}
 
-function AlertsTab() {
-  const alerts = useStore(s => s.alerts)
-  const active = alerts.filter(a => !a.resolved)
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-primary)' }}>实时告警</span>
-        {active.length > 0 && (
-          <span style={{
-            background: 'var(--color-primary)',
-            color: '#fff',
-            fontSize: 11,
-            fontWeight: 700,
-            padding: '1px 7px',
-            borderRadius: 10,
-          }}>
-            {active.length}
-          </span>
-        )}
-      </div>
-      <div className="alert-list" style={{ overflowY: 'auto', flex: 1 }}>
-        {active.length === 0 ? (
-          <div className="alert-empty">
-            <CheckCircle2 size={24} color="#10b981" style={{ marginBottom: 6 }} />
-            <div>网络运行正常</div>
-          </div>
-        ) : (
-          active.slice(0, 20).map(alert => {
-            const Icon = alert.severity === 'critical' ? ShieldAlert : (alert.severity === 'warning' ? AlertTriangle : Info)
-            return (
-              <div key={alert.id} className={`alert-item ${alert.severity}`}>
-                <span className="alert-icon" style={{ marginTop: 2 }}>
-                  <Icon size={14} />
-                </span>
-                <div className="alert-content">
-                  <div className="alert-message">{alert.message}</div>
-                  <div className="alert-time">{timeAgo(alert.timestamp)}</div>
-                </div>
-              </div>
-            )
-          })
-        )}
-      </div>
-    </div>
-  )
-}
 
 export default function NetworkInfo() {
   const [activeTab, setActiveTab] = useState('topo')
@@ -243,7 +188,6 @@ export default function NetworkInfo() {
         {activeTab === 'flows' && <FlowTable />}
         {activeTab === 'ports' && <PortStats />}
         {activeTab === 'policies' && <PolicyPanel />}
-        {activeTab === 'alerts' && <AlertsTab />}
       </div>
     </div>
   )
