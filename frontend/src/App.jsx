@@ -4,10 +4,10 @@ import { useWebSocket } from './services/useWebSocket'
 import NetworkTopology from './components/NetworkTopology/NetworkTopology'
 import NetworkInfo from './components/NetworkInfo/NetworkInfo'
 import IntentInput from './components/IntentInput/IntentInput'
-import { RefreshCw, Globe2, Command, Palette } from 'lucide-react'
+import { RefreshCw, Globe2, Command, Palette, LayoutTemplate } from 'lucide-react'
 
 function Header() {
-  const { wsConnected, networkStatus, refreshTopology, theme, toggleTheme } = useStore()
+  const { wsConnected, networkStatus, refreshTopology, theme, toggleTheme, layoutMode, toggleLayoutMode } = useStore()
   const ryuOk = networkStatus.ryu_connected
   return (
     <header className="header">
@@ -20,6 +20,14 @@ function Header() {
         <span className="logo-text-sub">Intent-Based Networking</span>
       </div>
       <div className="header-spacer" />
+      <button
+        className="btn btn-sm"
+        onClick={toggleLayoutMode}
+        title="切换布局算法"
+        style={{ marginRight: 8 }}
+      >
+        <LayoutTemplate size={14} /> {layoutMode === 'tree' ? '层级树状布局' : 'D3 物理布局'}
+      </button>
       <button
         className="btn btn-sm"
         onClick={toggleTheme}

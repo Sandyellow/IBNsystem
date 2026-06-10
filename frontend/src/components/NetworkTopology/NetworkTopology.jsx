@@ -135,24 +135,112 @@ function PortEdge({ id, sourceX, sourceY, targetX, targetY, style, markerEnd, da
 
 const edgeTypes = { portEdge: PortEdge }
 
-// ─── 智能自动布局算法 (d3-force) ─────────────────────────────────────
-function toFlowNodes(nodes, links = []) {
+// ─── 数据中心 Spine-Leaf 分层布局算法 ─────────────────────────────────────
+function toFlowNodesTree(nodes, links = []) {
   if (!nodes || nodes.length === 0) return []
 
   const simulationNodes = nodes.map(n => ({ ...n, id: String(n.id) }))
+  
+  // 1. 构建邻接表
+  const adj = {}
+  simulationNodes.forEach(n => adj[n.id] = [])
+  links.forEach(l => {
+    const s = String(l.source.id || l.source)
+    const t = String(l.target.id || l.target)
+    if(adj[s]) adj[s].push(t)
+    if(adj[t]) adj[t].push(s)
+  })
+
+  // 2. 从主机开始 BFS，划分层级 (Tier 0: Hosts, Tier 1: ToR Switches, Tier 2: Core)
+  const hosts = simulationNodes.filter(n => n.type === 'host' || n.id.startsWith('h')).map(n => n.id).sort()
+  const layers = []
+  const visited = new Set(hosts)
+  
+  if (hosts.length > 0) {
+    layers.push(hosts)
+    let queue = hosts
+    while(queue.length > 0) {
+      const nextLayer = []
+      for(const curr of queue) {
+        for(const neighbor of adj[curr]) {
+          if(!visited.has(neighbor)) {
+            visited.add(neighbor)
+            nextLayer.push(neighbor)
+          }
+        }
+      }
+      if(nextLayer.length > 0) {
+        nextLayer.sort() // 字母排序保证一致性
+        layers.push(nextLayer)
+      }
+      queue = nextLayer
+    }
+  }
+
+  // 3. 处理游离节点
+  const unvisited = simulationNodes.filter(n => !visited.has(n.id)).map(n => n.id).sort()
+  if(unvisited.length > 0) {
+    layers.push(unvisited)
+  }
+
+  // 4. 计算坐标 (自下而上)
+  const layerHeight = 220 // 增大层间距，使连线更长
+  const nodeSpacing = 200 // 增大同层节点间距，避免拥挤
+  const positions = {}
+  const totalLayers = layers.length
+  
+  layers.forEach((layerNodes, layerIndex) => {
+    // 层级越高（核心交换机），Y坐标越小（越靠上）
+    const y = (totalLayers - 1 - layerIndex) * layerHeight + 50
+    // 居中对齐该层的节点
+    const totalWidth = (layerNodes.length - 1) * nodeSpacing
+    const startX = 400 - totalWidth / 2
+    
+    layerNodes.forEach((nodeId, i) => {
+      positions[nodeId] = { x: startX + i * nodeSpacing, y: y }
+    })
+  })
+
+  return simulationNodes.map(n => ({
+    id: n.id,
+    type: 'topoNode',
+    position: { x: (positions[n.id]?.x || 400) - 60, y: (positions[n.id]?.y || 300) - 30 },
+    data: { ...n },
+  }))
+}
+
+// ─── D3 物理力导向算法 ─────────────────────────────────────
+function toFlowNodesD3(nodes, links = []) {
+  if (!nodes || nodes.length === 0) return []
+
+  const simulationNodes = nodes.map((n, i) => {
+    const isSwitch = n.type === 'switch' || n.data?.type === 'switch'
+    return {
+      ...n,
+      id: String(n.id),
+      // 给主机一个初始远离中心的位置，防止被交换机斥力场困在中心
+      x: isSwitch ? 400 + Math.random() * 50 : (i % 2 === 0 ? 0 : 800),
+      y: isSwitch ? 300 + Math.random() * 50 : (i % 3 === 0 ? 0 : 600)
+    }
+  })
   const simulationLinks = links.map(l => ({
-    source: String(l.source),
-    target: String(l.target),
+    source: String(l.source.id || l.source),
+    target: String(l.target.id || l.target),
     id: l.id
   }))
 
   const simulation = d3.forceSimulation(simulationNodes)
-    .force('link', d3.forceLink(simulationLinks).id(d => d.id).distance(180))
-    .force('charge', d3.forceManyBody().strength(-1000))
-    .force('center', d3.forceCenter(400, 300))
-    .force('collide', d3.forceCollide().radius(80))
+    .force('link', d3.forceLink(simulationLinks).id(d => d.id).distance(l => {
+      const isSwitchLink = (l.source.type || l.source.data?.type) === 'switch' && (l.target.type || l.target.data?.type) === 'switch'
+      return isSwitchLink ? 220 : 100
+    }))
+    .force('charge', d3.forceManyBody().strength(n => n.type === 'switch' ? -1500 : -600))
+    .force('x', d3.forceX(400).strength(n => n.type === 'switch' ? 0.1 : 0))
+    .force('y', d3.forceY(300).strength(n => n.type === 'switch' ? 0.1 : 0))
+    .force('r', d3.forceRadial(350, 400, 300).strength(n => n.type === 'switch' ? 0 : 0.15))
+    .force('collide', d3.forceCollide().radius(n => n.type === 'switch' ? 100 : 60))
 
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 400; i++) {
     simulation.tick()
   }
 
@@ -163,7 +251,6 @@ function toFlowNodes(nodes, links = []) {
     data: { ...n },
   }))
 }
-
 
 function toFlowEdges(links, flowNodes = [], activePathEdges = []) {
   const nodeMap = Object.fromEntries(flowNodes.map(n => [n.id, n]))
@@ -206,6 +293,7 @@ export default function NetworkTopology() {
   const selectedNode = useStore(s => s.selectedNode)
   const setSelectedNode = useStore(s => s.setSelectedNode)
   const activePathEdges = useStore(s => s.activePathEdges)
+  const layoutMode = useStore(s => s.layoutMode)
 
   // 用 useNodesState / useEdgesState + useEffect 保证正确同步
   const [nodes, setNodes, onNodesChange] = useNodesState([])
@@ -219,14 +307,14 @@ export default function NetworkTopology() {
     const links = topology.links || []
     const topoNodes = topology.nodes || []
     
-    // 简易深度比对（忽略时间戳等无关字段）
-    const currentJson = JSON.stringify({ nodes: topoNodes, links })
+    // 简易深度比对（忽略时间戳等无关字段），加入 layoutMode 触发重新计算
+    const currentJson = JSON.stringify({ nodes: topoNodes, links, layoutMode })
     if (currentJson === lastTopoJson) return
     setLastTopoJson(currentJson)
     
     setNodes(currentNodes => {
       const posMap = new Map(currentNodes.map(n => [n.id, n.position]))
-      const calculatedNodes = toFlowNodes(topology.nodes || [], links)
+      const calculatedNodes = layoutMode === 'tree' ? toFlowNodesTree(topoNodes, links) : toFlowNodesD3(topoNodes, links)
       
       const mergedNodes = calculatedNodes.map(n => {
         if (posMap.has(n.id)) {
@@ -236,9 +324,13 @@ export default function NetworkTopology() {
       })
       
       setEdges(toFlowEdges(links, mergedNodes, activePathEdges))
+      // 当切换布局时，忽略 posMap 强制使用新坐标
+      if (lastTopoJson && JSON.parse(lastTopoJson).layoutMode !== layoutMode) {
+        return calculatedNodes
+      }
       return mergedNodes
     })
-  }, [topology, setNodes, setEdges, activePathEdges])
+  }, [topology, layoutMode, setNodes, setEdges, activePathEdges])
 
   // 获取选中交换机的流表
   const [nodeFlows, setNodeFlows] = useState(null)
