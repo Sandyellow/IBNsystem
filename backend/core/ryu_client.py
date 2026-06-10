@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
-class RyuClient:
+from core.adapter import ControllerAdapter, NetworkPrimitive, PrimitiveType
+
+
+class RyuClient(ControllerAdapter):
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
         self._lock = asyncio.Lock()
@@ -30,6 +33,9 @@ class RyuClient:
                         timeout=TIMEOUT,
                     )
         return self._client
+        
+    async def connect(self):
+        await self._get()
 
     async def close(self):
         if self._client and not self._client.is_closed:
@@ -87,20 +93,65 @@ class RyuClient:
             logger.error(f"[RyuClient] get_switch_dpids: {e}")
             return []
 
-    # ── 流表 ──────────────────────────────────────────────
-    async def get_flows(self, dpid: int) -> List[Dict]:
-        """获取指定交换机的所有流表条目"""
-        try:
-            c = await self._get()
-            r = await c.get(f"/stats/flow/{dpid}")
-            r.raise_for_status()
-            data = r.json()
-            return data.get(str(dpid), [])
-        except Exception as e:
-            logger.error(f"[RyuClient] get_flows({dpid}): {e}")
-            return []
+    # ── 原语操作 ──────────────────────────────────────────
+    async def apply_primitive(self, primitive: NetworkPrimitive) -> bool:
+        if primitive.primitive_type == PrimitiveType.FLOW_ENTRY:
+            entry = {
+                "dpid": primitive.dpid,
+                "cookie": primitive.cookie or 0,
+                "priority": primitive.priority,
+                "match": primitive.match,
+                "actions": primitive.actions
+            }
+            if "table_id" in primitive.extra:
+                entry["table_id"] = primitive.extra["table_id"]
+            return await self._add_flow(entry)
+            
+        elif primitive.primitive_type == PrimitiveType.METER_ENTRY:
+            entry = {
+                "dpid": primitive.dpid,
+                "meter_id": primitive.extra.get("meter_id", 1),
+                "flags": primitive.extra.get("flags", "KBPS"),
+                "bands": primitive.extra.get("bands", [])
+            }
+            return await self._add_meter(entry)
+            
+        elif primitive.primitive_type == PrimitiveType.GROUP_ENTRY:
+            entry = {
+                "dpid": primitive.dpid,
+                "type": primitive.extra.get("type", "ALL"),
+                "group_id": primitive.extra.get("group_id", 1),
+                "buckets": primitive.extra.get("buckets", [])
+            }
+            return await self._add_group(entry)
+            
+        return False
 
-    async def add_flow(self, entry: Dict) -> bool:
+    async def delete_primitive(self, primitive: NetworkPrimitive) -> bool:
+        if primitive.primitive_type == PrimitiveType.FLOW_ENTRY:
+            if primitive.cookie is not None:
+                return await self.delete_flows_by_cookie(primitive.dpid, primitive.cookie)
+            else:
+                entry = {
+                    "dpid": primitive.dpid,
+                    "cookie": 0,
+                    "cookie_mask": 0,
+                    "table_id": primitive.extra.get("table_id", 0),
+                    "priority": primitive.priority,
+                    "match": primitive.match,
+                }
+                return await self._delete_flow_strict(entry)
+                
+        elif primitive.primitive_type == PrimitiveType.METER_ENTRY:
+            return await self._delete_meter(primitive.dpid, primitive.extra.get("meter_id", 1))
+            
+        elif primitive.primitive_type == PrimitiveType.GROUP_ENTRY:
+            return await self._delete_group(primitive.dpid, primitive.extra.get("group_id", 1))
+            
+        return False
+
+    # ── 内部具体 API ──────────────────────────────────────
+    async def _add_flow(self, entry: Dict) -> bool:
         """下发流表规则"""
         try:
             c = await self._get()
@@ -112,7 +163,17 @@ class RyuClient:
             logger.error(f"[RyuClient] add_flow: {e}")
             return False
 
-    async def delete_flow_by_cookie(self, dpid: int, cookie: int) -> bool:
+    async def _delete_flow_strict(self, entry: Dict) -> bool:
+        try:
+            c = await self._get()
+            r = await c.post("/stats/flowentry/delete_strict", json=entry)
+            r.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"[RyuClient] delete_flow_strict: {e}")
+            return False
+
+    async def delete_flows_by_cookie(self, dpid: int, cookie: int) -> bool:
         """通过 cookie 删除特定意图下发的所有流表"""
         try:
             c = await self._get()
@@ -130,10 +191,64 @@ class RyuClient:
             r.raise_for_status()
             return True
         except Exception as e:
-            logger.error(f"[RyuClient] delete_flow_by_cookie({dpid}, {cookie}): {e}")
+            logger.error(f"[RyuClient] delete_flows_by_cookie({dpid}, {cookie}): {e}")
             return False
 
-    # ── 端口统计 ──────────────────────────────────────────
+    async def _add_meter(self, entry: Dict) -> bool:
+        try:
+            c = await self._get()
+            r = await c.post("/stats/meterentry/add", json=entry)
+            r.raise_for_status()
+            logger.info(f"[RyuClient] add_meter OK dpid={entry.get('dpid')} id={entry.get('meter_id')}")
+            return True
+        except Exception as e:
+            logger.error(f"[RyuClient] add_meter: {e}")
+            return False
+
+    async def _delete_meter(self, dpid: int, meter_id: int) -> bool:
+        try:
+            c = await self._get()
+            r = await c.post("/stats/meterentry/delete", json={"dpid": dpid, "meter_id": meter_id})
+            r.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"[RyuClient] delete_meter({dpid}, {meter_id}): {e}")
+            return False
+
+    async def _add_group(self, entry: Dict) -> bool:
+        try:
+            c = await self._get()
+            r = await c.post("/stats/groupentry/add", json=entry)
+            r.raise_for_status()
+            logger.info(f"[RyuClient] add_group OK dpid={entry.get('dpid')} id={entry.get('group_id')}")
+            return True
+        except Exception as e:
+            logger.error(f"[RyuClient] add_group: {e}")
+            return False
+
+    async def _delete_group(self, dpid: int, group_id: int) -> bool:
+        try:
+            c = await self._get()
+            r = await c.post("/stats/groupentry/delete", json={"dpid": dpid, "group_id": group_id})
+            r.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"[RyuClient] delete_group({dpid}, {group_id}): {e}")
+            return False
+
+    # ── 流表/统计读取 ───────────────────────────────────────
+    async def get_flows(self, dpid: int) -> List[Dict]:
+        """获取指定交换机的所有流表条目"""
+        try:
+            c = await self._get()
+            r = await c.get(f"/stats/flow/{dpid}")
+            r.raise_for_status()
+            data = r.json()
+            return data.get(str(dpid), [])
+        except Exception as e:
+            logger.error(f"[RyuClient] get_flows({dpid}): {e}")
+            return []
+
     async def get_port_stats(self, dpid: int) -> List[Dict]:
         try:
             c = await self._get()
@@ -157,7 +272,6 @@ class RyuClient:
             logger.error(f"[RyuClient] get_port_desc({dpid}): {e}")
             return []
 
-    # ── Meter ─────────────────────────────────────────────
     async def get_meter_config(self, dpid: int) -> List[Dict]:
         try:
             c = await self._get()
@@ -168,27 +282,6 @@ class RyuClient:
         except Exception as e:
             logger.error(f"[RyuClient] get_meter_config({dpid}): {e}")
             return []
-
-    async def add_meter(self, entry: Dict) -> bool:
-        try:
-            c = await self._get()
-            r = await c.post("/stats/meterentry/add", json=entry)
-            r.raise_for_status()
-            logger.info(f"[RyuClient] add_meter OK dpid={entry.get('dpid')} id={entry.get('meter_id')}")
-            return True
-        except Exception as e:
-            logger.error(f"[RyuClient] add_meter: {e}")
-            return False
-
-    async def delete_meter(self, dpid: int, meter_id: int) -> bool:
-        try:
-            c = await self._get()
-            r = await c.post("/stats/meterentry/delete", json={"dpid": dpid, "meter_id": meter_id})
-            r.raise_for_status()
-            return True
-        except Exception as e:
-            logger.error(f"[RyuClient] delete_meter({dpid}, {meter_id}): {e}")
-            return False
 
 
 # 单例

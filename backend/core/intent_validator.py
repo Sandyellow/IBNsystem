@@ -17,12 +17,11 @@ Topology = Union[Dict[str, Any], TopologyModel]
 logger = logging.getLogger(__name__)
 
 # ─── 高危操作（需要用户二次确认）────────────────────────────────────────────
-HIGH_RISK_ACTIONS = {IntentAction.DELETE_FLOW, IntentAction.BLOCK_TRAFFIC}
+HIGH_RISK_ACTIONS = {IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}
 
 # 绝对禁止的参数组合（安全红线）
 FORBIDDEN_COMBOS = [
-    lambda i: i.action == IntentAction.BLOCK_TRAFFIC and i.source_node is None and i.target_node is None,
-    lambda i: i.action == IntentAction.DELETE_FLOW and i.source_node is None and i.target_node is None,
+    # 在 _validate_security_policy 中处理
 ]
 
 # ─── 查询类 action（不参与冲突检测）─────────────────────────────────────────
@@ -34,15 +33,17 @@ QUERY_ACTIONS = {
 
 # ─── 策略身份字段注册表 ───────────────────────────────────────────────────
 POLICY_IDENTITY_FIELDS: dict[IntentAction, set[str]] = {
-    IntentAction.BLOCK_TRAFFIC:    {"source_node", "target_node"},
-    IntentAction.ALLOW_TRAFFIC:    {"source_node", "target_node"},
-    IntentAction.REDIRECT_TRAFFIC: {"source_node", "target_node"},
-    IntentAction.RATE_LIMIT:       {"source_node", "target_node"},
-    IntentAction.SET_PRIORITY:     {"source_node", "target_node"},
+    IntentAction.BLOCK_TRAFFIC:    {"source_nodes", "target_nodes", "scope"},
+    IntentAction.ALLOW_TRAFFIC:    {"source_nodes", "target_nodes", "scope"},
+    IntentAction.REDIRECT_TRAFFIC: {"source_nodes", "target_nodes", "scope"},
+    IntentAction.RATE_LIMIT:       {"source_nodes", "target_nodes", "scope"},
+    IntentAction.SET_PRIORITY:     {"source_nodes", "target_nodes", "scope"},
     IntentAction.CLEAR_FLOWS:      {"target_switch"},
-    IntentAction.ADD_FLOW:         {"source_node", "target_node", "target_switch"},
-    IntentAction.DELETE_FLOW:      {"source_node", "target_node", "target_switch"},
-    IntentAction.LOAD_BALANCE:     {"source_node", "target_node"},
+    IntentAction.ACL:              {"source_nodes", "target_nodes", "scope"},
+    IntentAction.QOS_MARK:         {"source_nodes", "target_nodes", "scope"},
+    IntentAction.PORT_MIRROR:      {"target_switch"},
+    IntentAction.VLAN:             {"source_nodes"},
+    IntentAction.MONITOR_ALERT:    {"source_nodes", "target_nodes", "scope"},
 }
 
 # ─── Action 互斥关系注册表 ─────────────────────────────────────────────────
@@ -51,8 +52,7 @@ MUTUALLY_EXCLUSIVE_PAIRS: set[frozenset[IntentAction]] = {
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.REDIRECT_TRAFFIC}),
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.RATE_LIMIT}),
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.SET_PRIORITY}),
-    frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.LOAD_BALANCE}),
-    frozenset({IntentAction.REDIRECT_TRAFFIC, IntentAction.LOAD_BALANCE}),
+    frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}),
 }
 
 _CONFLICT_ACTIONS = set(POLICY_IDENTITY_FIELDS.keys())
@@ -111,13 +111,22 @@ class IntentValidator:
             )
 
         missing = []
-        for node_name in [intent.source_node, intent.target_node]:
+        all_nodes_to_check = intent.source_nodes + intent.target_nodes + intent.exclude_nodes
+        
+        # 对于 action_params 中可能出现的特定节点字段也需验证
+        if isinstance(intent.action_params, dict):
+            via = intent.action_params.get("via_switch")
+            if via: all_nodes_to_check.append(via)
+            mirror = intent.action_params.get("mirror_to_port")
+            if mirror and mirror not in ("NORMAL", "CONTROLLER"): 
+                # 简单处理：假设可能是一个节点
+                all_nodes_to_check.append(mirror)
+        elif hasattr(intent.action_params, 'via_switch'):
+            all_nodes_to_check.append(intent.action_params.via_switch)
+
+        for node_name in all_nodes_to_check:
             if node_name and node_name not in known_nodes:
                 missing.append(node_name)
-
-        via = intent.parameters.get("via_node")
-        if via and via not in known_nodes:
-            missing.append(via)
 
         if missing:
             return ValidationResult(
@@ -133,12 +142,17 @@ class IntentValidator:
 
     def _validate_security_policy(self, intent: ParsedIntent) -> ValidationResult:
         for check in FORBIDDEN_COMBOS:
-            if check(intent):
+            pass # reserved for future lambdas
+            
+        # 注意: FORBIDDEN_COMBOS 原本检查 source_node is None, 新版本对应 source_nodes == [] 并且 scope != all
+        if intent.action in {IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}:
+            if not intent.source_nodes and not intent.target_nodes and intent.scope != "all" and not intent.target_switch:
                 return ValidationResult(
                     layer=ValidationLayer.SECURITY_POLICY, passed=False,
                     message="安全检查失败：该操作触发了系统安全红线，可能影响全局网络，已阻止执行",
                     details={"action": intent.action, "reason": "高危的无目标全局操作"},
                 )
+
         return ValidationResult(
             layer=ValidationLayer.SECURITY_POLICY, passed=True,
             message="安全策略验证通过"
@@ -151,19 +165,18 @@ class IntentValidator:
                 message="查询类操作，跳过冲突检测",
             )
 
-        if intent.source_node and intent.target_node:
-            if intent.source_node == intent.target_node:
-                return ValidationResult(
-                    layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
-                    message="策略冲突：源节点和目标节点不能相同",
-                )
+        if set(intent.source_nodes).intersection(set(intent.target_nodes)):
+            return ValidationResult(
+                layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
+                message="策略冲突：源节点和目标节点列表存在重合",
+            )
 
         if intent.action == IntentAction.REDIRECT_TRAFFIC:
-            via = intent.parameters.get("via_node")
-            if via in (intent.source_node, intent.target_node):
+            via = intent.action_params.get("via_switch") if isinstance(intent.action_params, dict) else getattr(intent.action_params, "via_switch", None)
+            if via and (via in intent.source_nodes or via in intent.target_nodes):
                 return ValidationResult(
                     layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
-                    message="策略冲突：中转节点 via_node 不能与源或目的节点相同",
+                    message="策略冲突：中转节点 via_switch 不能与源或目的节点相同",
                 )
 
         if intent.action not in _CONFLICT_ACTIONS:
@@ -210,8 +223,8 @@ class IntentValidator:
             if new_identity != pol_identity:
                 continue
 
-            pol_params = pol.get("parameters", {})
-            intent_params = intent.parameters
+            pol_params = pol.get("action_params", {})
+            intent_params = intent.action_params if isinstance(intent.action_params, dict) else intent.action_params.model_dump()
 
             if pol_action == intent.action and pol_params == intent_params:
                 conflicts.append(ConflictInfo(
@@ -255,29 +268,42 @@ class IntentValidator:
     def _extract_identity(self, intent: ParsedIntent, fields: set[str]) -> tuple | None:
         values = []
         field_map = {
-            "source_node": intent.source_node,
-            "target_node": intent.target_node,
+            "source_nodes": frozenset(intent.source_nodes) if intent.source_nodes else None,
+            "target_nodes": frozenset(intent.target_nodes) if intent.target_nodes else None,
             "target_switch": intent.target_switch,
+            "scope": intent.scope,
         }
         for f in fields:
             v = field_map.get(f)
-            if v is None:
-                return None
-            values.append(v)
+            if v is None and f != "target_switch": 
+                # 对于某些必填身份字段如果缺失，则视为身份不完整
+                # 但由于 source_nodes 在 scope=all 时可能为空，需要允许空
+                if f in ("source_nodes", "target_nodes") and intent.scope == "all":
+                    values.append(frozenset())
+                else:
+                    return None
+            else:
+                values.append(v)
         return tuple(values)
 
     def _extract_policy_identity(self, pol: dict, fields: set[str]) -> tuple | None:
         values = []
         field_map = {
-            "source_node": pol.get("src_host"),
-            "target_node": pol.get("dst_host"),
+            "source_nodes": frozenset(pol.get("source_nodes", [])),
+            "target_nodes": frozenset(pol.get("target_nodes", [])),
             "target_switch": pol.get("target_switch"),
+            "scope": pol.get("scope", "specific"),
         }
         for f in fields:
             v = field_map.get(f)
-            if v is None:
-                return None
-            values.append(v)
+            # 类似处理
+            if (not v) and f in ("source_nodes", "target_nodes"):
+                if pol.get("scope") == "all":
+                    values.append(frozenset())
+                else:
+                    return None
+            else:
+                values.append(v)
         return tuple(values)
 
 

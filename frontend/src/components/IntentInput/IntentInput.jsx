@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import useStore from '../../store/useStore'
 import {
   BrainCircuit, Search, Clock, Zap, CheckCircle2, XCircle, AlertTriangle, Network,
@@ -13,6 +15,8 @@ const STATUS_CONFIG = {
   success: { cls: 'badge-success', label: '成功', icon: <CheckCircle2 size={12} /> },
   failed: { cls: 'badge-failed', label: '失败', icon: <XCircle size={12} /> },
   conflict: { cls: 'badge-conflict', label: '策略冲突', icon: <AlertTriangle size={12} /> },
+  clarification: { cls: 'badge-warning', label: '需要补充', icon: <Search size={12} /> },
+  chat: { cls: 'badge-pending', label: '对话', icon: <BrainCircuit size={12} /> },
 }
 
 const ACTION_ICONS = {
@@ -25,21 +29,64 @@ const ACTION_ICONS = {
   set_priority: <TrendingUp size={14} />,
   redirect_traffic: <CornerDownRight size={14} />,
   clear_flows: <Trash2 size={14} />,
+  add_flow: <CheckSquare size={14} />,
+  delete_flow: <Trash2 size={14} />,
+  load_balance: <ActivitySquare size={14} />,
 }
 
 // 快捷操作模板
 const QUICK_ACTIONS = [
-  { label: '查看拓扑', text: '显示当前网络拓扑结构', icon: <Network size={12} /> },
-  { label: '查看流表', text: '查看所有交换机的流表', icon: <ArrowRightLeft size={12} /> },
-  { label: '端口统计', text: '查看所有交换机的端口流量统计', icon: <Activity size={12} /> },
-  { label: '隔离主机', text: '隔离 h1 和 h3 的通信', icon: <ShieldAlert size={12} /> },
-  { label: '带宽限速', text: '限制 h2 到 h4 的带宽为 5Mbps', icon: <Clock4 size={12} /> },
-  { label: '恢复通信', text: '恢复 h1 和 h3 的通信', icon: <CheckSquare size={12} /> },
-  { label: '高优先级', text: '给 h1 到 h2 的流量设置优先级 300', icon: <TrendingUp size={12} /> },
+  { label: '访问控制', text: '单向拒绝 H1 访问 H3 的 SSH 服务', icon: <ShieldAlert size={12} /> },
+  { label: '批量限速', text: '除了 H3 外，将 H1 到所有主机的带宽限制在 5M', icon: <Clock4 size={12} /> },
+  { label: '流量标记', text: '把 H1 到 H2 的视频流量的 DSCP 标记设为 46', icon: <ActivitySquare size={12} /> },
+  { label: '恢复通信', text: '恢复 H1 和 H3 的通信', icon: <CheckSquare size={12} /> },
+  { label: '优先覆盖', text: '以 800 的高优先级阻断 H1 和 H2 的通信', icon: <TrendingUp size={12} /> },
+  { label: '清除流表', text: '清空全网所有交换机的流表', icon: <Trash2 size={12} /> },
 ]
 
 function ResultDisplay({ result, action }) {
   if (!result) return null
+
+  // 澄清需求
+  if (result.type === 'clarification') {
+    return (
+      <div className="bubble bubble-system" style={{ borderLeft: '3px solid #8b5cf6' }}>
+        <div className="result-header" style={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+          <BrainCircuit size={14} /> 需要补充说明
+        </div>
+        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-primary)', whiteSpace: 'pre-wrap' }}>
+          {result.reason}
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {(result.options || []).map((opt, i) => (
+            <button 
+              key={i} 
+              className="suggestion-chip" 
+              style={{ 
+                textAlign: 'left', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: 6, 
+                padding: '12px 14px',
+                fontFamily: 'inherit',
+                border: '1px solid #c4b5fd',
+                background: '#fcfaff'
+              }}
+              onClick={() => {
+                const inputEl = document.querySelector('.intent-textarea')
+                if (inputEl) {
+                  window.dispatchEvent(new CustomEvent('fill-intent', { detail: opt.suggested_input }))
+                }
+              }}
+            >
+              <div style={{ fontWeight: 600, color: '#6d28d9', fontSize: 13, fontFamily: 'inherit' }}>{opt.label}</div>
+              <div style={{ fontSize: 13, color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.5, fontFamily: 'inherit' }}>{opt.description}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   if (result.success === false) {
     return (
@@ -159,12 +206,13 @@ function ResultDisplay({ result, action }) {
         <div className="result-header" style={{ color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
           <BrainCircuit size={14} /> 助手回复
         </div>
-        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-primary)' }}>
-          {result.message}
+        <div className="chat-markdown-body" style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-primary)' }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.message}</ReactMarkdown>
         </div>
       </div>
     )
   }
+
 
   // 控制类操作成功结果
   const controlColors = {
@@ -174,6 +222,9 @@ function ResultDisplay({ result, action }) {
     set_priority: '#10b981',      // emerald-500
     redirect_traffic: '#60a5fa',  // blue-400
     clear_flows: '#64748b',       // slate-500
+    add_flow: '#34d399',          // emerald-400
+    delete_flow: '#f43f5e',       // rose-500
+    load_balance: '#a855f7',      // purple-500
   }
   const color = controlColors[result.type] || '#34d399'
 
@@ -217,6 +268,7 @@ function IntentBubble({ record }) {
   const effectiveStatus = (() => {
     if (['pending', 'parsing', 'executing'].includes(record.status)) return record.status
     if (record.execution_result?.type === 'conflict') return 'conflict'
+    if (record.execution_result?.type === 'clarification') return 'clarification'
     return record.status
   })()
   const cfg = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.pending
@@ -301,6 +353,16 @@ export default function IntentInput() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [intentHistory.length])
+
+  useEffect(() => {
+    const handleFillIntent = (e) => {
+      setText(e.detail)
+      const inputEl = document.querySelector('.intent-textarea')
+      if (inputEl) inputEl.focus()
+    }
+    window.addEventListener('fill-intent', handleFillIntent)
+    return () => window.removeEventListener('fill-intent', handleFillIntent)
+  }, [])
 
   const handleSubmit = async () => {
     const t = text.trim()

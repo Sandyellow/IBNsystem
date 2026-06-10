@@ -912,3 +912,17 @@ body { overflow: hidden; height: 100vh; }
 .recharts-tooltip-wrapper {
   transition: transform 0ms !important;
 }
+
+/* Markdown styling for chat */
+.chat-markdown-body p { margin-bottom: 8px; }
+.chat-markdown-body p:last-child { margin-bottom: 0; }
+.chat-markdown-body ul, .chat-markdown-body ol { padding-left: 24px; margin-bottom: 12px; margin-top: 4px; }
+.chat-markdown-body li { margin-bottom: 6px; line-height: 1.5; }
+.chat-markdown-body li > p { margin-bottom: 0; }
+.chat-markdown-body strong { color: var(--color-primary-dark); font-weight: 700; }
+
+/* Table styling for markdown */
+.chat-markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 13px; }
+.chat-markdown-body th, .chat-markdown-body td { border: 1px solid var(--color-border); padding: 8px; text-align: left; }
+.chat-markdown-body th { background: var(--color-bg-subtle); font-weight: 600; }
+.chat-markdown-body code { background: var(--color-bg-subtle); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 12px; color: var(--color-primary-dark); }

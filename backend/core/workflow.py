@@ -4,16 +4,17 @@ LangGraph 意图处理工作流
 """
 import json
 import logging
-from typing import Annotated, Dict, Any, Optional, TypedDict, Literal, Tuple
+from typing import Annotated, Dict, Any, Optional, TypedDict, Literal, Tuple, List
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
+from pydantic import BaseModel, Field
 
 from config import settings
-from models.intent import ParsedIntent
+from models.intent import ParsedIntent, ClarificationNeeded
 from core.tools import get_node_location, get_active_policies, cancel_active_policy
 from core.intent_validator import intent_validator
 from core.policy_executor import policy_executor
@@ -21,12 +22,16 @@ from core.topo_manager import topo_manager
 
 logger = logging.getLogger(__name__)
 
+class IntentList(BaseModel):
+    """用于包装多个网络意图操作的列表。即使只有一个操作，也请放在列表中。"""
+    intents: List[ParsedIntent] = Field(..., description="要执行的网络操作意图列表，按顺序执行。")
+
 # 定义图的状态
 class IBNState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     intent_id: str
     execution_result: Optional[Dict[str, Any]]
-    parsed_intent: Optional[ParsedIntent]
+    parsed_intents: Optional[List[ParsedIntent]]
 
 # 初始化 LLM 并绑定工具和结构化输出
 llm = ChatOpenAI(
@@ -37,30 +42,44 @@ llm = ChatOpenAI(
 )
 
 tools = [get_node_location, get_active_policies, cancel_active_policy]
-# 将 ParsedIntent 也绑定为工具，供 LLM 在决策完毕后输出最终意图
-llm_with_tools = llm.bind_tools(tools + [ParsedIntent])
+# 将 IntentList 和 ClarificationNeeded 绑定为工具
+llm_with_tools = llm.bind_tools(tools + [IntentList, ClarificationNeeded])
 
 # 核心 Agent 节点
 async def agent_node(state: IBNState):
     messages = state["messages"]
-    # 提取初始用户输入作为参考（如果需要）
-    user_request = messages[0].content if messages else ""
 
     # System Prompt 定义
-    system_prompt = """你是一个 SDN 网络控制助手。用户的自然语言将被你解析为结构化网络策略。
+    system_prompt = """你是一个 SDN 网络控制助手。用户的自然语言将被你解析为结构化的网络策略（IntentList 包含一组 ParsedIntent）。
 
 【重要规则】
 1. 遇到未知节点，必须先调用 get_node_location 工具查询节点位置。
-2. 策略冲突检测由系统自动完成，你不需要也不应该做冲突判断，直接解析意图并调用 ParsedIntent 工具输出结果即可。
-3. 当用户明确要求撤销某条策略时，调用 cancel_active_policy 工具，完成后再调用 ParsedIntent 确认。
-4. 完成节点查询后，必须调用 ParsedIntent 工具输出最终结构化意图。不要用自然语言解释，直接调用工具。"""
+2. 策略冲突检测由系统自动完成，你不需做冲突判断。
+3. 当用户明确要求撤销某条策略时，调用 cancel_active_policy 工具。
+4. 必须调用 IntentList 工具输出最终的意图列表。对于复合指令，可以拆分成多个独立的 ParsedIntent 放入列表中。
+5. **消歧与澄清机制**：如果用户的指令语义模糊（例如：未说明是单向还是双向，“只能通信”是否意味着双向均阻断其他通信？或者指令有明显歧义），**请调用 ClarificationNeeded 工具**，提供给用户清晰的选择选项，**不要**调用 IntentList 瞎猜。
+6. 关注策略的单双向 `direction` 属性。如果不确定通常默认为 `bidirectional`，但明确的“单向”请使用 `unidirectional`。
+
+【参数说明与Few-shot 示例】
+- 简单一对一："限制 h1 到 h2 的带宽为 5M"
+  => action: rate_limit, source_nodes: ["h1"], target_nodes: ["h2"], action_params: {"bandwidth_mbps": 5}
+- 批量与方向："单向阻断 h1 到所有主机的通信"
+  => action: block_traffic, scope: "all", source_nodes: ["h1"], target_nodes: [], direction: "unidirectional"
+- 排除操作："除了 h2 之外，阻断 h1 和所有人的通信"
+  => action: block_traffic, scope: "all", source_nodes: ["h1"], target_nodes: [], exclude_nodes: ["h2"]
+- 条件匹配："限制 h1 到 h3 的 SSH 流量 (TCP 22)"
+  => action: block_traffic, source_nodes: ["h1"], target_nodes: ["h3"], match: {"ip_proto": 6, "tcp_dst": 22}
+- 复合操作："先限制 h1 到 h2 带宽 5M，然后隔离 h3"
+  => 输出包含两个对象的列表：
+     1. action: rate_limit, source_nodes: ["h1"], target_nodes: ["h2"], action_params: {"bandwidth_mbps": 5}
+     2. action: block_traffic, source_nodes: ["h3"], scope: "all"
+"""
     from langchain_core.messages import SystemMessage, AIMessage
     
-    # 消息清理：保留完整历史，但清理掉一些大模型 API 可能不兼容的额外参数（如 reasoning_content）
+    # 消息清理
     safe_messages = [SystemMessage(content=system_prompt)]
     for msg in messages:
         if isinstance(msg, AIMessage):
-            # 创建新的 AIMessage 以防污染原始状态
             safe_msg = AIMessage(
                 content=msg.content, 
                 tool_calls=msg.tool_calls,
@@ -70,21 +89,14 @@ async def agent_node(state: IBNState):
         else:
             safe_messages.append(msg)
 
-    # 引入 asyncio 处理超时（例如限制 LLM 单次思考最长 20 秒）
     import asyncio
     try:
-        # 使用 asyncio.wait_for 进行超时控制
         response = await asyncio.wait_for(llm_with_tools.ainvoke(safe_messages), timeout=20.0)
     except asyncio.TimeoutError:
         logger.error("[Workflow] LLM 响应超时")
-        # 构造一个假的 ToolCall 去执行失败路线，或者直接返回错误消息
-        from langchain_core.messages import AIMessage
-        from models.intent import ParsedIntent
-        # 伪造一个由于超时导致的解析失败结果
-        return {"messages": [AIMessage(content="[System] 请求大模型超时，请重试。")]}
+        raise Exception("请求大模型超时，请稍后重试。")
 
     return {"messages": [response]}
-
 
 
 # 路由逻辑
@@ -92,16 +104,13 @@ def should_continue(state: IBNState) -> Literal["tools", "execute_and_finish", "
     messages = state["messages"]
     last_message = messages[-1]
 
-    # 如果 LLM 没有进行任何工具调用，强制结束（理论上不应该发生，因为我们绑定了 ParsedIntent）
     if not last_message.tool_calls:
         return "__end__"
     
-    # 检查 LLM 是否调用了 ParsedIntent
     for tool_call in last_message.tool_calls:
-        if tool_call["name"] == "ParsedIntent":
+        if tool_call["name"] in ["IntentList", "ClarificationNeeded"]:
             return "execute_and_finish"
             
-    # 如果调用的都是普通工具（查询拓扑/策略），则走向 tools 节点
     return "tools"
 
 # 执行与终结节点
@@ -110,95 +119,122 @@ async def execute_node(state: IBNState):
     last_message = messages[-1]
     intent_id = state["intent_id"]
     
-    parsed_intent_call = None
+    intent_list_call = None
+    clarification_call = None
     for tool_call in last_message.tool_calls:
-        if tool_call["name"] == "ParsedIntent":
-            parsed_intent_call = tool_call
+        if tool_call["name"] == "ClarificationNeeded":
+            clarification_call = tool_call
+            break
+        elif tool_call["name"] == "IntentList":
+            intent_list_call = tool_call
             break
             
-    if not parsed_intent_call:
-        return {"execution_result": {"success": False, "error": "LLM failed to output ParsedIntent"}}
+    if clarification_call:
+        args = clarification_call["args"]
+        res = {
+            "success": False,
+            "type": "clarification",
+            "reason": args.get("reason", "您的指令存在歧义，需要澄清："),
+            "options": args.get("options", [])
+        }
+        success_msg = ToolMessage(
+            content=json.dumps(res, ensure_ascii=False),
+            tool_call_id=clarification_call["id"],
+            name="ClarificationNeeded"
+        )
+        return {"messages": [success_msg], "execution_result": res, "parsed_intents": None}
+
+    if not intent_list_call:
+        return {"execution_result": {"success": False, "error": "LLM failed to output IntentList or ClarificationNeeded"}}
         
     try:
         # 1. 还原 Pydantic 模型
-        intent_args = parsed_intent_call["args"]
-        parsed_intent = ParsedIntent(**intent_args)
-        logger.info(f"[{intent_id}] LLM 输出了 ParsedIntent: {parsed_intent}")
+        args = intent_list_call["args"]
+        intent_list = IntentList(**args)
+        parsed_intents = intent_list.intents
+        logger.info(f"[{intent_id}] LLM 输出了 {len(parsed_intents)} 个 ParsedIntent")
         
-        # 2. Rule-based 验证层
+        # 2. Rule-based 验证层 (逐一验证)
         topo = topo_manager.topology
-        report = await intent_validator.validate(parsed_intent, topo, intent_id)
-        
-        # 如果 Rule-based 验证失败
-        if not report.overall_passed:
-            # 检查是否为冲突类失败：冲突失败直接结束，不触发 LLM 回环重试
-            conflict_layer = next((res for res in report.layers if res.layer == "conflict_detection" and not res.passed), None)
-            if conflict_layer:
-                logger.warning(f"[{intent_id}] 冲突检测失败，直接结束: {conflict_layer.message}")
-                # 从活跃策略中补充冲突策略的完整描述
-                from core.policy_executor import policy_executor as _pe
-                active_map = {p["id"]: p for p in _pe.get_active_policies()}
-                enriched_conflicts = []
-                for c in (conflict_layer.conflicts or []):
-                    c_dict = c.model_dump()
-                    pol = active_map.get(c.policy_id, {})
-                    c_dict["existing_description"] = pol.get("description", "")
-                    c_dict["existing_src"] = pol.get("src_host", "")
-                    c_dict["existing_dst"] = pol.get("dst_host", "")
-                    enriched_conflicts.append(c_dict)
-                conflict_result = {
-                    "success": False,
-                    "type": "conflict",
-                    "message": conflict_layer.message,
-                    "conflicts": enriched_conflicts,
-                }
-                success_msg = ToolMessage(
-                    content=json.dumps(conflict_result, ensure_ascii=False),
-                    tool_call_id=parsed_intent_call["id"],
-                    name="ParsedIntent"
-                )
-                return {"messages": [success_msg], "execution_result": conflict_result, "parsed_intent": parsed_intent}
+        all_reports = []
+        for pi in parsed_intents:
+            report = await intent_validator.validate(pi, topo, intent_id)
+            all_reports.append((pi, report))
+            
+            if not report.overall_passed:
+                # 遇到失败，立刻返回错误给 LLM 重试
+                conflict_layer = next((res for res in report.layers if res.layer == "conflict_detection" and not res.passed), None)
+                if conflict_layer:
+                    logger.warning(f"[{intent_id}] 冲突检测失败: {conflict_layer.message}")
+                    from core.policy_executor import policy_executor as _pe
+                    active_map = {p["id"]: p for p in _pe.get_active_policies()}
+                    enriched_conflicts = []
+                    for c in (conflict_layer.conflicts or []):
+                        c_dict = c.model_dump()
+                        pol = active_map.get(c.policy_id, {})
+                        c_dict["existing_description"] = pol.get("description", "")
+                        enriched_conflicts.append(c_dict)
+                    conflict_result = {
+                        "success": False,
+                        "type": "conflict",
+                        "message": conflict_layer.message,
+                        "conflicts": enriched_conflicts,
+                    }
+                    success_msg = ToolMessage(
+                        content=json.dumps(conflict_result, ensure_ascii=False),
+                        tool_call_id=intent_list_call["id"],
+                        name="IntentList"
+                    )
+                    return {"messages": [success_msg], "execution_result": conflict_result, "parsed_intents": parsed_intents}
 
-            # 非冲突类失败（拓扑/安全）：退回给 LLM 重试
-            error_msgs = [f"[{res.layer}] {res.message}" for res in report.layers if not res.passed]
-            full_error = "验证失败：\n" + "\n".join(error_msgs) + "\n请根据报错修正你的参数，重新输出 ParsedIntent。"
+                # 非冲突类失败（拓扑/安全）：退回给 LLM 重试
+                error_msgs = [f"[{res.layer}] {res.message}" for res in report.layers if not res.passed]
+                full_error = f"意图 {pi.action} 验证失败：\n" + "\n".join(error_msgs) + "\n请根据报错修正你的参数，重新输出 IntentList。"
+                
+                tool_msg = ToolMessage(
+                    content=full_error,
+                    tool_call_id=intent_list_call["id"],
+                    name="IntentList"
+                )
+                return {"messages": [tool_msg]} 
             
-            tool_msg = ToolMessage(
-                content=full_error,
-                tool_call_id=parsed_intent_call["id"],
-                name="ParsedIntent"
-            )
-            logger.warning(f"[{intent_id}] Rule-based 验证失败，已退回给 LLM 重试: {full_error}")
-            return {"messages": [tool_msg]} # 会触发图继续循环回到 agent_node
-            
-        # 3. 如果验证通过，直接通过 policy_executor 执行
-        # 这里为了严谨起见，直接调用 executor，因为 executor 内置了所有执行逻辑。
+        # 3. 验证全部通过后，逐个执行
+        final_results = []
+        for i, pi in enumerate(parsed_intents):
+            sub_id = f"{intent_id}_{i}" if len(parsed_intents) > 1 else intent_id
+            res = await policy_executor.execute(pi, sub_id)
+            final_results.append(res)
+            # 若中间有失败，可以视情况中断或继续。这里简化为全部执行完毕，合并结果。
         
-        res = await policy_executor.execute(parsed_intent, intent_id)
+        # 将结果合并展示给前端
+        merged_res = {
+            "success": all(r.get("success", False) for r in final_results),
+            "type": final_results[0].get("type") if len(final_results) == 1 else "composite",
+            "message": "\n".join([r.get("message", r.get("error", "未知错误")) for r in final_results]),
+            "details": final_results
+        }
         
-        # 为了兼容消息链，我们需要返回一个 ToolMessage 表示 ParsedIntent 已经被成功处理
         success_msg = ToolMessage(
-            content=json.dumps(res, ensure_ascii=False),
-            tool_call_id=parsed_intent_call["id"],
-            name="ParsedIntent"
+            content=json.dumps(merged_res, ensure_ascii=False),
+            tool_call_id=intent_list_call["id"],
+            name="IntentList"
         )
-        return {"messages": [success_msg], "execution_result": res, "parsed_intent": parsed_intent}
+        return {"messages": [success_msg], "execution_result": merged_res, "parsed_intents": parsed_intents}
         
     except Exception as e:
         logger.error(f"[{intent_id}] 执行节点异常: {e}", exc_info=True)
-        return {"execution_result": {"success": False, "error": str(e)}, "parsed_intent": None}
+        return {"execution_result": {"success": False, "error": str(e)}, "parsed_intents": None}
 
 # 构建 LangGraph
 workflow = StateGraph(IBNState)
 workflow.add_node("agent", agent_node)
-workflow.add_node("tools", ToolNode(tools)) # 仅包含查询类工具
+workflow.add_node("tools", ToolNode(tools))
 workflow.add_node("execute_and_finish", execute_node)
 
 workflow.set_entry_point("agent")
 workflow.add_conditional_edges("agent", should_continue)
 workflow.add_edge("tools", "agent")
 
-# execute_and_finish 可能会因为验证失败回到 agent，也可能会真正结束
 def check_finish_route(state: IBNState) -> Literal["agent", "__end__"]:
     if state.get("execution_result") is not None:
         return "__end__"
@@ -209,45 +245,57 @@ workflow.add_conditional_edges("execute_and_finish", check_finish_route)
 # 编译图
 app = workflow.compile()
 
-# 提供给外部调用的异步包装函数
 async def process_intent(user_text: str, intent_id: str) -> Dict[str, Any]:
     """主入口函数：处理用户的自然语言意图"""
     inputs = {
         "messages": [HumanMessage(content=user_text)],
         "intent_id": intent_id,
         "execution_result": None,
-        "parsed_intent": None
+        "parsed_intents": None
     }
     
-    # 限制递归层数以防死循环
     final_state = await app.ainvoke(inputs, config={"recursion_limit": 10})
     
     result = final_state.get("execution_result")
-    parsed_intent = final_state.get("parsed_intent")
+    parsed_intents = final_state.get("parsed_intents")
     
     if not result:
-        return {"success": False, "error": "执行失败：未产生有效结果", "parsed_intent": parsed_intent}
+        # 尝试检查大模型是否用纯文本进行了对话反问
+        last_msg = final_state["messages"][-1]
+        from langchain_core.messages import AIMessage
+        if isinstance(last_msg, AIMessage) and not last_msg.tool_calls:
+            return {
+                "success": True, 
+                "type": "chat", 
+                "message": last_msg.content,
+                "parsed_intents": None
+            }
+        return {"success": False, "error": "执行失败：未产生有效结果", "parsed_intents": parsed_intents}
     
-    # 将 parsed_intent 塞入 result 方便外层提取
-    result["parsed_intent_obj"] = parsed_intent
+    # 存入列表供前端记录
+    result["parsed_intent_list"] = parsed_intents
+    # 为了兼容前端现在的气泡展示，取第一个意图作为主意图
+    if parsed_intents:
+        result["parsed_intent_obj"] = parsed_intents[0]
+
     return result
 
-async def parse_intent_dry_run(user_text: str) -> Tuple[Optional[ParsedIntent], str]:
+async def parse_intent_dry_run(user_text: str) -> Tuple[Optional[List[ParsedIntent]], str]:
     """仅进行意图解析（干运行/调试用）"""
-    system_prompt = "你是一个 SDN 网络控制助手。用户的自然语言将被你解析为结构化网络策略。如果无法解析，可输出相应的字段说明。"
+    system_prompt = "你是一个 SDN 网络控制助手。解析意图并输出 IntentList。"
     try:
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_text}]
-        # 使用 bind_tools 替代 with_structured_output 绕过特定 API 的 tool_choice 限制
-        llm_strict = llm.bind_tools([ParsedIntent])
+        llm_strict = llm.bind_tools([IntentList])
         response = await llm_strict.ainvoke(messages)
         
         if not response.tool_calls:
-            return None, "LLM failed to output ParsedIntent tool call"
+            return None, "LLM failed to output IntentList tool call"
             
-        intent_args = response.tool_calls[0]["args"]
-        parsed = ParsedIntent(**intent_args)
-        return parsed, ""
+        args = response.tool_calls[0]["args"]
+        parsed = IntentList(**args)
+        return parsed.intents, ""
     except Exception as e:
         return None, str(e)
+
 
 

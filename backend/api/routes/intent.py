@@ -44,7 +44,13 @@ async def _process(record: IntentRecord):
         record.updated_at = _now()
         await ws_manager.broadcast_intent_update(record.model_dump())
 
-        if result.get("success"):
+        if result.get("type") == "clarification":
+            record.status = IntentStatus.CLARIFICATION
+            record.execution_result = result
+        elif result.get("type") == "chat":
+            record.status = IntentStatus.CHAT
+            record.execution_result = result
+        elif result.get("success"):
             record.status = IntentStatus.SUCCESS
             record.execution_result = result
         else:

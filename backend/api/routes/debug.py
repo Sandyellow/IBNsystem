@@ -92,7 +92,7 @@ async def debug_add_flow(req: RyuFlowRequest):
     """直接向 Ryu 下发流表（调试用）"""
     entry = req.entry
     entry["dpid"] = req.dpid
-    ok = await ryu_client.add_flow(entry)
+    ok = await ryu_client._add_flow(entry)
     return {"success": ok, "entry": entry}
 
 
