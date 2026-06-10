@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from models.intent import IntentRequest, IntentRecord, IntentStatus, IntentAction
 from core.workflow import process_intent as graph_process_intent
 from core.policy_executor import policy_executor
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 from api.websocket_manager import ws_manager
 
 router = APIRouter(prefix="/api/intent", tags=["intent"])

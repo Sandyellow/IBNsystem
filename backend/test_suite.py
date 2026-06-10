@@ -21,7 +21,7 @@ except ImportError:
 from models.intent import ParsedIntent, IntentAction
 from models.policy import ActivePolicy
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 from core.policy_executor import policy_executor, _make_cookie
 
 # ─── 1. 测试框架核心定义 ──────────────────────────────────────────────────────

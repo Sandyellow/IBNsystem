@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
-from core.adapter import ControllerAdapter, NetworkPrimitive, PrimitiveType
+from core.controller_adapter import ControllerAdapter, NetworkPrimitive, PrimitiveType
 
 
 class RyuClient(ControllerAdapter):

@@ -15,10 +15,10 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from models.intent import ParsedIntent, ClarificationNeeded
-from core.tools import get_node_location, get_active_policies, cancel_active_policy
+from core.intent_tools import get_node_location, get_active_policies, cancel_active_policy
 from core.intent_validator import intent_validator
 from core.policy_executor import policy_executor
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 
 logger = logging.getLogger(__name__)
 

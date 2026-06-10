@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 from core.workflow import parse_intent_dry_run
 from core.policy_executor import policy_executor
 from api.websocket_manager import ws_manager

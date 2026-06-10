@@ -6,7 +6,7 @@ LangChain 工具库
 import json
 from langchain_core.tools import tool
 
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 from core.policy_executor import policy_executor
 
 

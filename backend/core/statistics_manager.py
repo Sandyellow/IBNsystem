@@ -6,7 +6,7 @@ from collections import deque, defaultdict
 from typing import Dict, List, Any
 
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 
 logger = logging.getLogger(__name__)
 

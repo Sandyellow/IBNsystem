@@ -7,13 +7,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager
-from core.stats_manager import stats_manager
+from core.topology_manager import topo_manager
+from core.statistics_manager import stats_manager
 from api.websocket_manager import ws_manager
 from api.routes.network import router as network_router
 from api.routes.intent import router as intent_router
 from api.routes.debug import router as debug_router
-from api.routes.ws import router as ws_router
+from api.routes.websocket import router as ws_router
 
 logging.basicConfig(
     level=logging.INFO,

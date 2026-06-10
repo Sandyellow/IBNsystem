@@ -7,9 +7,9 @@ import logging
 from fastapi import APIRouter
 
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager
+from core.topology_manager import topo_manager
 from core.policy_executor import policy_executor
-from core.stats_manager import stats_manager
+from core.statistics_manager import stats_manager
 
 router = APIRouter(prefix="/api", tags=["network"])
 logger = logging.getLogger(__name__)

@@ -8,10 +8,10 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Set
 
 from core.ryu_client import ryu_client
-from core.topo_manager import topo_manager, _is_placeholder_mac
+from core.topology_manager import topo_manager, _is_placeholder_mac
 from models.intent import ParsedIntent, IntentAction, IntentScope, MatchCondition
 from models.policy import ActivePolicy, PolicyType
-from core.adapter import NetworkPrimitive, PrimitiveType
+from core.controller_adapter import NetworkPrimitive, PrimitiveType
 from core.policy_store import load_policies, save_policies
 
 logger = logging.getLogger(__name__)
