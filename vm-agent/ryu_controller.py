@@ -26,6 +26,7 @@ class IBNController(app_manager.RyuApp):
         self.switches = {}         # dpid -> Datapath
         self.links = []            # 全局链路
         self.spanning_tree_installed = False
+        self.blocked_ports = set() # (dpid, port)
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -86,30 +87,58 @@ class IBNController(app_manager.RyuApp):
 
         visited = set()
         tree_edges = set()
-        blocked = []
 
-        root = dpids[0]
-        queue = [root]
-        visited.add(root)
+        # 遍历所有节点，确保所有连通分支都被处理（防止孤岛链路全被阻断）
+        for root in sorted(dpids):
+            if root in visited:
+                continue
+                
+            queue = [root]
+            visited.add(root)
 
-        # BFS 构建生成树
-        while queue:
-            cur = queue.pop(0)
-            for neighbor, port in adj.get(cur, []):
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-                    tree_edges.add((cur, neighbor))
-                    tree_edges.add((neighbor, cur))
+            # BFS 构建生成树
+            while queue:
+                cur = queue.pop(0)
+                # 排序邻居以保证生成树稳定 (按照邻居dpid, 自己的port排序)
+                neighbors = sorted(adj.get(cur, []), key=lambda x: (x[0], x[1]))
+                for neighbor, port in neighbors:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+                        tree_edges.add((cur, neighbor))
+                        tree_edges.add((neighbor, cur))
 
         # 找出非树边，准备阻塞
+        new_blocked_ports = set()
         for link in self.links:
             s, d = link.src.dpid, link.dst.dpid
             if (s, d) not in tree_edges:
-                blocked.append((s, link.src.port_no, d))
-                blocked.append((d, link.dst.port_no, s))
+                new_blocked_ports.add((s, link.src.port_no, d))
+                new_blocked_ports.add((d, link.dst.port_no, s))
 
-        for dpid, port, peer in blocked:
+        # 解除不再需要阻塞的端口
+        to_unblock = self.blocked_ports - new_blocked_ports
+        for dpid, port, peer in to_unblock:
+            dp = self.switches.get(dpid)
+            if dp is None:
+                continue
+            parser = dp.ofproto_parser
+            match = parser.OFPMatch(in_port=port)
+            # 删除旧的阻断流表，优先级需匹配
+            mod = parser.OFPFlowMod(
+                datapath=dp,
+                command=dp.ofproto.OFPFC_DELETE,
+                out_port=dp.ofproto.OFPP_ANY,
+                out_group=dp.ofproto.OFPG_ANY,
+                priority=20,
+                match=match
+            )
+            dp.send_msg(mod)
+            self.logger.info("STP: unblocked port %s on s%s (link to s%s)", port, dpid, peer)
+
+        # 添加新的阻塞端口
+        to_block = new_blocked_ports - self.blocked_ports
+        for dpid, port, peer in to_block:
             dp = self.switches.get(dpid)
             if dp is None:
                 continue
@@ -119,6 +148,8 @@ class IBNController(app_manager.RyuApp):
             # 使用 priority=20 阻塞冗余链路（高于基础转发 10，低于业务策略 400）
             self._add_flow(dp, 20, match, actions)
             self.logger.info("STP: blocked port %s on s%s (link to s%s)", port, dpid, peer)
+
+        self.blocked_ports = new_blocked_ports
 
         self.spanning_tree_installed = True
 
