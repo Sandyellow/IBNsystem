@@ -166,9 +166,17 @@ class PolicyExecutor:
         target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
 
         primitives = []
+        processed_pairs = set()
         prio = intent.intent_priority if intent.intent_priority is not None else 500
         for src in src_hosts:
             for dst in dst_hosts:
+                if src["id"] == dst["id"]:
+                    continue
+                pair = (src["id"], dst["id"])
+                rev_pair = (dst["id"], src["id"])
+                if pair in processed_pairs or (intent.direction == "bidirectional" and rev_pair in processed_pairs):
+                    continue
+                processed_pairs.add(pair)
                 match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
                 match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
                 
@@ -221,10 +229,17 @@ class PolicyExecutor:
         target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
 
         primitives = []
-        # 使用比 Block (500) 更高的优先级
+        processed_pairs = set()
         prio = intent.intent_priority if intent.intent_priority is not None else 600
         for src in src_hosts:
             for dst in dst_hosts:
+                if src["id"] == dst["id"]:
+                    continue
+                pair = (src["id"], dst["id"])
+                rev_pair = (dst["id"], src["id"])
+                if pair in processed_pairs or (intent.direction == "bidirectional" and rev_pair in processed_pairs):
+                    continue
+                processed_pairs.add(pair)
                 match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
                 match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
                 
@@ -304,10 +319,18 @@ class PolicyExecutor:
         target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
 
         primitives = []
+        processed_pairs = set()
         prio = intent.intent_priority if intent.intent_priority is not None else priority
         
         for src in src_hosts:
             for dst in dst_hosts:
+                if src["id"] == dst["id"]:
+                    continue
+                pair = (src["id"], dst["id"])
+                rev_pair = (dst["id"], src["id"])
+                if pair in processed_pairs or (intent.direction == "bidirectional" and rev_pair in processed_pairs):
+                    continue
+                processed_pairs.add(pair)
                 match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
                 match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
                 
@@ -366,9 +389,17 @@ class PolicyExecutor:
         target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
 
         primitives = []
+        processed_pairs = set()
         prio = intent.intent_priority if intent.intent_priority is not None else 600
         for src in src_hosts:
             for dst in dst_hosts:
+                if src["id"] == dst["id"]:
+                    continue
+                pair = (src["id"], dst["id"])
+                rev_pair = (dst["id"], src["id"])
+                if pair in processed_pairs or (intent.direction == "bidirectional" and rev_pair in processed_pairs):
+                    continue
+                processed_pairs.add(pair)
                 match = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
                 match["eth_type"] = 0x0800 # 强制 IPv4 才能改 DSCP
                 actions = [
@@ -545,10 +576,17 @@ class PolicyExecutor:
                 for m, p in matches_to_install:
                     primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dst_dpid, cookie=cookie, priority=p, match=m, actions=[{"type": "OUTPUT", "port": dst_port}]))
 
+        processed_pairs = set()
         try:
             for src in src_hosts:
                 for dst in dst_hosts:
-                    if src["id"] == dst["id"]: continue
+                    if src["id"] == dst["id"]:
+                        continue
+                    pair = (src["id"], dst["id"])
+                    rev_pair = (dst["id"], src["id"])
+                    if pair in processed_pairs or (intent.direction == "bidirectional" and rev_pair in processed_pairs):
+                        continue
+                    processed_pairs.add(pair)
                     await install_multipath(src, dst)
                     if intent.direction == "bidirectional":
                         await install_multipath(dst, src)
