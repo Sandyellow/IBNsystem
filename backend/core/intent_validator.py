@@ -35,21 +35,17 @@ QUERY_ACTIONS = {
 POLICY_IDENTITY_FIELDS: dict[IntentAction, set[str]] = {
     IntentAction.BLOCK_TRAFFIC:    {"source_nodes", "target_nodes", "scope"},
     IntentAction.ALLOW_TRAFFIC:    {"source_nodes", "target_nodes", "scope"},
-    IntentAction.REDIRECT_TRAFFIC: {"source_nodes", "target_nodes", "scope"},
     IntentAction.RATE_LIMIT:       {"source_nodes", "target_nodes", "scope"},
     IntentAction.SET_PRIORITY:     {"source_nodes", "target_nodes", "scope"},
     IntentAction.CLEAR_FLOWS:      {"target_switch"},
     IntentAction.ACL:              {"source_nodes", "target_nodes", "scope"},
     IntentAction.QOS_MARK:         {"source_nodes", "target_nodes", "scope"},
-    IntentAction.PORT_MIRROR:      {"target_switch"},
     IntentAction.VLAN:             {"source_nodes"},
-    IntentAction.MONITOR_ALERT:    {"source_nodes", "target_nodes", "scope"},
 }
 
 # ── Action 互斥关系注册表 ─────────────────────────────────────────────────
 MUTUALLY_EXCLUSIVE_PAIRS: set[frozenset[IntentAction]] = {
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.ALLOW_TRAFFIC}),
-    frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.REDIRECT_TRAFFIC}),
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.RATE_LIMIT}),
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.SET_PRIORITY}),
     frozenset({IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}),
@@ -175,14 +171,6 @@ class IntentValidator:
                 layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
                 message="策略冲突：源节点和目标节点列表存在重合",
             )
-
-        if intent.action == IntentAction.REDIRECT_TRAFFIC:
-            via = intent.action_params.get("via_switch") if isinstance(intent.action_params, dict) else getattr(intent.action_params, "via_switch", None)
-            if via and (via in intent.source_nodes or via in intent.target_nodes):
-                return ValidationResult(
-                    layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
-                    message="策略冲突：中转节点 via_switch 不能与源或目的节点相同",
-                )
 
         if intent.action not in _CONFLICT_ACTIONS:
             return ValidationResult(
