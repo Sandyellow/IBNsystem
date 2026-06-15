@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Any, List, Union
 
 from models.intent import (
-    ParsedIntent, IntentAction, IntentValidationReport,
+    ParsedIntent, IntentAction, IntentValidationReport, IntentScope,
     ValidationResult, ValidationLayer, ConflictInfo, ConflictSeverity,
 )
 from models.network import Topology as TopologyModel
@@ -16,8 +16,14 @@ Topology = Union[Dict[str, Any], TopologyModel]
 
 logger = logging.getLogger(__name__)
 
-# ── 高危操作（需要用户二次确认）────────────────────────────────────────────
-HIGH_RISK_ACTIONS = {IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}
+# ── 始终需要二次确认（全局破坏性强）─────────────────────────────────
+HIGH_RISK_ACTIONS = {IntentAction.CLEAR_FLOWS}
+
+# 仅当 scope="all" 时才触发确认（全网影响）
+SCOPE_DEPENDENT_RISK_ACTIONS = {
+    IntentAction.BLOCK_TRAFFIC,
+    IntentAction.ACL,
+}
 
 # 绝对禁止的参数组合（安全红线）
 FORBIDDEN_COMBOS = [
@@ -54,6 +60,15 @@ MUTUALLY_EXCLUSIVE_PAIRS: set[frozenset[IntentAction]] = {
 _CONFLICT_ACTIONS = set(POLICY_IDENTITY_FIELDS.keys())
 
 
+def _is_high_risk(intent: ParsedIntent) -> bool:
+    """判断意图是否属于高危操作，需要人工二次确认"""
+    if intent.action in HIGH_RISK_ACTIONS:
+        return True
+    if intent.action in SCOPE_DEPENDENT_RISK_ACTIONS:
+        return intent.scope == IntentScope.ALL
+    return False
+
+
 class IntentValidator:
     """意图策略验证器，执行三层验证：拓扑校验 → 安全策略 → 冲突检测"""
 
@@ -75,11 +90,21 @@ class IntentValidator:
         l3 = self._validate_conflict_detection(intent, intent_id)
         layers.append(l3)
 
-        overall_passed = all(l.passed for l in layers)
-        requires_confirmation = intent.action in HIGH_RISK_ACTIONS and overall_passed
+        # overall_passed: 高危和 OVERRIDE 冲突不影响整体通过判断，仅 HARD_BLOCK 才应导致失败
+        hard_block_failed = any(
+            not l.passed
+            for l in [l1, l2]
+        ) or (not l3.passed and l3.details.get("conflict_resolution") == "block")
+        overall_passed = not hard_block_failed
+
+        requires_confirmation = _is_high_risk(intent) and overall_passed
+
+        # 冲突处置方式和旧策略 ID
+        conflict_resolution = l3.details.get("conflict_resolution") if l3.details else None
+        override_policy_id = l3.details.get("override_policy_id") if l3.details else None
 
         risk_level = "low"
-        if intent.action in HIGH_RISK_ACTIONS:
+        if _is_high_risk(intent):
             risk_level = "high"
         elif not l1.passed:
             risk_level = "medium"
@@ -89,6 +114,8 @@ class IntentValidator:
             layers=layers,
             requires_confirmation=requires_confirmation,
             risk_level=risk_level,
+            conflict_resolution=conflict_resolution,
+            override_policy_id=override_policy_id,
         )
         logger.info(
             f"[Validator] action={intent.action} passed={overall_passed} "
@@ -166,10 +193,14 @@ class IntentValidator:
                 message="查询类操作，跳过冲突检测",
             )
 
-        if set(intent.source_nodes).intersection(set(intent.target_nodes)):
+        # 修复自环检查：只有 source 和 target 完全相同且只有一个节点时才拦截
+        src_set = set(intent.source_nodes)
+        tgt_set = set(intent.target_nodes)
+        if src_set and tgt_set and src_set == tgt_set and len(src_set) == 1:
             return ValidationResult(
                 layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
-                message="策略冲突：源节点和目标节点列表存在重合",
+                message="策略作用于自身节点，无意义",
+                details={"conflict_resolution": "block"},
             )
 
         if intent.action not in _CONFLICT_ACTIONS:
@@ -250,11 +281,45 @@ class IntentValidator:
                 message="未检测到策略冲突",
             )
 
+        # 分级处置：只取最严重的冲突
+        has_mutually_exclusive = any(c.severity == ConflictSeverity.MUTUALLY_EXCLUSIVE for c in conflicts)
+        has_override = any(c.severity == ConflictSeverity.OVERRIDE for c in conflicts)
+        has_duplicate = any(c.severity == ConflictSeverity.DUPLICATE for c in conflicts)
+
         conflict_ids = [c.policy_id for c in conflicts]
+
+        if has_mutually_exclusive:
+            return ValidationResult(
+                layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
+                message=f"检测到 {len(conflicts)} 条互斥策略冲突，请先撤销冲突策略后再重新下发",
+                details={"conflict_policy_ids": conflict_ids, "conflict_resolution": "block"},
+                conflicts=conflicts,
+            )
+
+        if has_override:
+            # 取第一个 OVERRIDE 冲突的旧策略 ID
+            override_conflict = next(c for c in conflicts if c.severity == ConflictSeverity.OVERRIDE)
+            return ValidationResult(
+                layer=ValidationLayer.CONFLICT_DETECTION, passed=True,
+                message=f"检测到同类型旧策略，参数不同，需要确认是否替换",
+                details={
+                    "conflict_policy_ids": conflict_ids,
+                    "conflict_resolution": "pending_override",
+                    "override_policy_id": override_conflict.policy_id,
+                },
+                conflicts=conflicts,
+            )
+
+        # 只有 DUPLICATE
+        duplicate_conflict = next(c for c in conflicts if c.severity == ConflictSeverity.DUPLICATE)
         return ValidationResult(
-            layer=ValidationLayer.CONFLICT_DETECTION, passed=False,
-            message=f"检测到 {len(conflicts)} 条策略冲突，请先撤销冲突策略后再重新下发",
-            details={"conflict_policy_ids": conflict_ids},
+            layer=ValidationLayer.CONFLICT_DETECTION, passed=True,
+            message="已存在完全相同的策略，无需重复下发",
+            details={
+                "conflict_policy_ids": conflict_ids,
+                "conflict_resolution": "skip",
+                "duplicate_policy_id": duplicate_conflict.policy_id,
+            },
             conflicts=conflicts,
         )
 
@@ -270,14 +335,18 @@ class IntentValidator:
         for f in fields:
             v = field_map.get(f)
             if v is None and f != "target_switch": 
-                # 对于某些必填身份字段如果缺失，则视为身份不完整
-                # 但由于 source_nodes 在 scope=all 时可能为空，需要允许空
                 if f in ("source_nodes", "target_nodes") and intent.scope == "all":
                     values.append(frozenset())
                 else:
                     return None
             else:
                 values.append(v)
+        
+        # 将 L3/L4 match 条件也作为身份特征的一部分，防止 SSH 与 ICMP 混淆
+        match_dict = intent.match.model_dump() if getattr(intent, "match", None) else {}
+        match_norm = frozenset((k, v) for k, v in match_dict.items() if v is not None)
+        values.append(match_norm)
+        
         return tuple(values)
 
     def _extract_policy_identity(self, pol: dict, fields: set[str]) -> tuple | None:
@@ -291,7 +360,6 @@ class IntentValidator:
         }
         for f in fields:
             v = field_map.get(f)
-            # 类似处理
             if (not v) and f in ("source_nodes", "target_nodes"):
                 if pol.get("scope") == "all":
                     values.append(frozenset())
@@ -299,7 +367,11 @@ class IntentValidator:
                     return None
             else:
                 values.append(v)
+        
+        match_dict = pol.get("match", {}) or {}
+        match_norm = frozenset((k, v) for k, v in match_dict.items() if v is not None)
+        values.append(match_norm)
+        
         return tuple(values)
-
 
 intent_validator = IntentValidator()

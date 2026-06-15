@@ -30,13 +30,14 @@ class IntentScope(str, Enum):
 
 class IntentStatus(str, Enum):
     """意图处理生命周期状态"""
-    PENDING   = "pending"
-    PARSING   = "parsing"
-    EXECUTING = "executing"
-    SUCCESS   = "success"
-    FAILED    = "failed"
-    CLARIFICATION = "clarification"
-    CHAT      = "chat"
+    PENDING               = "pending"
+    PARSING               = "parsing"
+    EXECUTING             = "executing"
+    SUCCESS               = "success"
+    FAILED                = "failed"
+    CLARIFICATION         = "clarification"
+    CHAT                  = "chat"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
 
 
 class MatchCondition(BaseModel):
@@ -167,3 +168,7 @@ class IntentValidationReport(BaseModel):
     layers: List[ValidationResult]
     requires_confirmation: bool = False
     risk_level: str = "low"
+    # 冲突处置方式：None(无冲突) / "skip"(幂等跳过) / "pending_override"(等待用户确认覆盖) / "block"(硬拦截)
+    conflict_resolution: Optional[str] = None
+    # OVERRIDE 时记录需要被替换的旧策略 ID
+    override_policy_id: Optional[str] = None

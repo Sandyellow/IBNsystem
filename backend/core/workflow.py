@@ -166,20 +166,86 @@ async def execute_node(state: IBNState):
         intent_list = IntentList(**args)
         parsed_intents = intent_list.intents
         logger.info(f"[{intent_id}] LLM 输出了 {len(parsed_intents)} 个 ParsedIntent")
-        
+
+        import uuid
+        from core.pending_confirmations import PendingItem, add_pending
+        from core.policy_executor import policy_executor as _pe
+
         # 2. Rule-based 验证层 (逐一验证)
         topo = topo_manager.topology
         all_reports = []
         for pi in parsed_intents:
             report = await intent_validator.validate(pi, topo, intent_id)
             all_reports.append((pi, report))
-            
+
+            # ── 轨道 2a: DUPLICATE 幂等跳过 ────────────────────────────
+            if report.conflict_resolution == "skip":
+                logger.info(f"[{intent_id}] DUPLICATE 幂等跳过: {pi.action}")
+                skip_result = {
+                    "success": True,
+                    "type": "duplicate_skip",
+                    "message": "已存在完全相同的策略，无需重复下发",
+                }
+                msg = ToolMessage(
+                    content=json.dumps(skip_result, ensure_ascii=False),
+                    tool_call_id=intent_list_call["id"],
+                    name="IntentList",
+                )
+                return {"messages": [msg], "execution_result": skip_result, "parsed_intents": parsed_intents}
+
+            # ── 轨道 2b / 3: OVERRIDE 或高危风险 → Pending Confirmation ──
+            if report.conflict_resolution == "pending_override" or report.requires_confirmation:
+                token = str(uuid.uuid4())
+                c_type = "override" if report.conflict_resolution == "pending_override" else "risk"
+                item = PendingItem(
+                    intent=pi,
+                    intent_id=intent_id,
+                    confirmation_type=c_type,
+                    old_policy_id=report.override_policy_id,
+                )
+                add_pending(token, item)
+                logger.info(f"[{intent_id}] 进入 Pending Confirmation: type={c_type}, token={token[:8]}…")
+
+                # 构造给前端展示用的摘要
+                active_map = {p["id"]: p for p in _pe.get_active_policies()}
+                old_policy_summary = active_map.get(report.override_policy_id, {}) if report.override_policy_id else {}
+                new_intent_summary = {
+                    "action": pi.action,
+                    "source_nodes": pi.source_nodes,
+                    "target_nodes": pi.target_nodes,
+                    "scope": pi.scope,
+                    "direction": pi.direction,
+                    "action_params": pi.action_params if isinstance(pi.action_params, dict) else pi.action_params.model_dump(),
+                }
+                confirm_result = {
+                    "success": False,
+                    "type": "confirmation_required",
+                    "token": token,
+                    "confirmation_type": c_type,
+                    "action": pi.action,
+                    "risk_description": (
+                        f"即将替换旧策略「{old_policy_summary.get('description', report.override_policy_id)}」"
+                        if c_type == "override"
+                        else f"操作「{pi.action}」将影响全局网络，请确认后执行"
+                    ),
+                    "old_policy": old_policy_summary,
+                    "new_intent": new_intent_summary,
+                }
+                msg = ToolMessage(
+                    content=json.dumps(confirm_result, ensure_ascii=False),
+                    tool_call_id=intent_list_call["id"],
+                    name="IntentList",
+                )
+                return {"messages": [msg], "execution_result": confirm_result, "parsed_intents": parsed_intents}
+
+            # ── 轨道 1 / 2c: 硬拦截 ───────────────────────────────────
             if not report.overall_passed:
-                # 遇到失败，立刻返回错误给 LLM 重试
-                conflict_layer = next((res for res in report.layers if res.layer == "conflict_detection" and not res.passed), None)
+                conflict_layer = next(
+                    (res for res in report.layers if res.layer == "conflict_detection" and not res.passed),
+                    None,
+                )
                 if conflict_layer:
                     logger.warning(f"[{intent_id}] 冲突检测失败: {conflict_layer.message}")
-                    from core.policy_executor import policy_executor as _pe
                     active_map = {p["id"]: p for p in _pe.get_active_policies()}
                     enriched_conflicts = []
                     for c in (conflict_layer.conflicts or []):
@@ -193,24 +259,26 @@ async def execute_node(state: IBNState):
                         "message": conflict_layer.message,
                         "conflicts": enriched_conflicts,
                     }
-                    success_msg = ToolMessage(
+                    msg = ToolMessage(
                         content=json.dumps(conflict_result, ensure_ascii=False),
                         tool_call_id=intent_list_call["id"],
-                        name="IntentList"
+                        name="IntentList",
                     )
-                    return {"messages": [success_msg], "execution_result": conflict_result, "parsed_intents": parsed_intents}
+                    return {"messages": [msg], "execution_result": conflict_result, "parsed_intents": parsed_intents}
 
-                # 非冲突类失败（拓扑/安全）：退回给 LLM 重试
+                # 拓扑/安全错误：退回 LLM 重试
                 error_msgs = [f"[{res.layer}] {res.message}" for res in report.layers if not res.passed]
-                full_error = f"意图 {pi.action} 验证失败：\n" + "\n".join(error_msgs) + "\n请根据报错修正你的参数，重新输出 IntentList。"
-                
+                full_error = (
+                    f"意图 {pi.action} 验证失败：\n" + "\n".join(error_msgs)
+                    + "\n请根据报错修正你的参数，重新输出 IntentList。"
+                )
                 tool_msg = ToolMessage(
                     content=full_error,
                     tool_call_id=intent_list_call["id"],
-                    name="IntentList"
+                    name="IntentList",
                 )
-                return {"messages": [tool_msg]} 
-            
+                return {"messages": [tool_msg]}
+
         # 3. 验证全部通过后，逐个执行
         final_results = []
         for i, pi in enumerate(parsed_intents):

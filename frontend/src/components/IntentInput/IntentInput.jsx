@@ -5,18 +5,19 @@ import useStore from '../../store/useStore'
 import {
   BrainCircuit, Search, Clock, Zap, CheckCircle2, XCircle, AlertTriangle, Network,
   ArrowRightLeft, Activity, ShieldAlert, CheckSquare, Clock4, TrendingUp, CornerDownRight,
-  ActivitySquare, Trash2, Send, Lightbulb, ChevronDown, ChevronUp, ChevronRight
+  ActivitySquare, Trash2, Send, Lightbulb, ChevronDown, ChevronUp, ChevronRight, ShieldCheck
 } from 'lucide-react'
 
 const STATUS_CONFIG = {
-  pending: { cls: 'badge-pending', label: '排队中', icon: <Clock size={12} /> },
-  parsing: { cls: 'badge-validating', label: '解析中', icon: <Search size={12} /> },
-  executing: { cls: 'badge-executing', label: '执行中', icon: <Zap size={12} /> },
-  success: { cls: 'badge-success', label: '成功', icon: <CheckCircle2 size={12} /> },
-  failed: { cls: 'badge-failed', label: '失败', icon: <XCircle size={12} /> },
-  conflict: { cls: 'badge-conflict', label: '策略冲突', icon: <AlertTriangle size={12} /> },
-  clarification: { cls: 'badge-warning', label: '需要补充', icon: <Search size={12} /> },
-  chat: { cls: 'badge-pending', label: '对话', icon: <BrainCircuit size={12} /> },
+  pending:               { cls: 'badge-pending',    label: '排队中',   icon: <Clock size={12} /> },
+  parsing:               { cls: 'badge-validating', label: '解析中',   icon: <Search size={12} /> },
+  executing:             { cls: 'badge-executing',  label: '执行中',   icon: <Zap size={12} /> },
+  success:               { cls: 'badge-success',    label: '成功',     icon: <CheckCircle2 size={12} /> },
+  failed:                { cls: 'badge-failed',     label: '失败',     icon: <XCircle size={12} /> },
+  conflict:              { cls: 'badge-conflict',   label: '策略冲突', icon: <AlertTriangle size={12} /> },
+  clarification:         { cls: 'badge-warning',   label: '需要补充', icon: <Search size={12} /> },
+  chat:                  { cls: 'badge-pending',    label: '对话',     icon: <BrainCircuit size={12} /> },
+  awaiting_confirmation: { cls: 'badge-warning',   label: '待确认',   icon: <AlertTriangle size={12} /> },
 }
 
 const ACTION_ICONS = {
@@ -47,8 +48,132 @@ const QUICK_ACTIONS = [
   { label: '清除流表', text: '清空全网所有交换机的流表', icon: <Trash2 size={12} /> },
 ]
 
+function ConfirmationCard({ result, isOverride }) {
+  const [loading, setLoading] = useState(false)
+  const [done, setDone] = useState(false)
+  const [doneMsg, setDoneMsg] = useState('')
+
+  // 复用与 api.js 相同的 baseURL 逻辑，确保请求打到后端 :8000 而不是 Vite :5173
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || `http://${window.location.hostname}:8000/api`
+
+  const handleAction = async (cancel) => {
+    setLoading(true)
+    try {
+      const url = `${API_BASE}/intent/confirm/${result.token}${cancel ? '?cancel=true' : ''}`
+      const res = await fetch(url, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(err.detail || `HTTP ${res.status}`)
+      }
+      const data = await res.json()
+      setDone(true)
+      setDoneMsg(cancel ? '已取消' : (data.message || '确认成功，请等待执行结果'))
+    } catch (e) {
+      setDone(true)
+      setDoneMsg('请求失败: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (done) {
+    return (
+      <div className="bubble bubble-system" style={{ borderLeft: isOverride ? '3px solid #f97316' : '3px solid #ef4444' }}>
+        <div style={{ fontSize: 13, color: '#6b7280' }}>{doneMsg}</div>
+      </div>
+    )
+  }
+
+  const title = isOverride ? '⚠️ 检测到旧策略，是否替换？' : '高危操作，需要确认'
+  const confirmLabel = isOverride ? '替换旧策略' : '确认执行（危险）'
+  const accentColor = isOverride ? '#ea580c' : '#dc2626'
+
+  return (
+    <div className={`bubble bubble-system confirm-card ${isOverride ? 'is-override' : 'is-risk'}`}>
+      {/* 标题 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, color: accentColor, fontSize: 13 }}>
+        <AlertTriangle size={14} /> {title}
+      </div>
+
+      {/* 风险描述 */}
+      <div style={{ fontSize: 12, color: '#374151', marginTop: 2, lineHeight: 1.5 }}>
+        {result.risk_description}
+      </div>
+
+      {/* OVERRIDE 时展示旧/新策略对比 */}
+      {isOverride && result.old_policy && Object.keys(result.old_policy).length > 0 && (
+        <div className="confirm-compare-grid">
+          <div className="confirm-box old-policy">
+            <div style={{ fontWeight: 700, color: '#b91c1c', marginBottom: 4 }}>旧策略</div>
+            <div style={{ color: '#7f1d1d', fontFamily: 'monospace' }}>
+              {result.old_policy.description || result.old_policy.id?.slice(0, 12) + '…'}
+            </div>
+            {result.old_policy.action_params && Object.keys(result.old_policy.action_params).length > 0 && (
+              <pre style={{ margin: '4px 0 0', fontSize: 10, color: '#92400e', whiteSpace: 'pre-wrap' }}>
+                {JSON.stringify(result.old_policy.action_params, null, 2)}
+              </pre>
+            )}
+          </div>
+          <div className="confirm-box new-policy">
+            <div style={{ fontWeight: 700, color: '#15803d', marginBottom: 4 }}>新策略</div>
+            <div style={{ color: '#14532d', fontFamily: 'monospace' }}>
+              {result.new_intent?.action}
+            </div>
+            {result.new_intent?.action_params && Object.keys(result.new_intent.action_params).length > 0 && (
+              <pre style={{ margin: '4px 0 0', fontSize: 10, color: '#166534', whiteSpace: 'pre-wrap' }}>
+                {JSON.stringify(result.new_intent.action_params, null, 2)}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 操作按钮 */}
+      <div className="confirm-actions">
+        <button
+          onClick={() => handleAction(false)}
+          disabled={loading}
+          className={`confirm-btn confirm-btn-primary ${isOverride ? 'override' : 'risk'}`}
+        >
+          {loading ? '处理中…' : confirmLabel}
+        </button>
+        <button
+          onClick={() => handleAction(true)}
+          disabled={loading}
+          className="confirm-btn confirm-btn-cancel"
+        >
+          取消
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ResultDisplay({ result, action }) {
   if (!result) return null
+
+  // 幂等跳过（DUPLICATE）
+  if (result.type === 'duplicate_skip') {
+    return (
+      <div className="bubble bubble-system" style={{ borderLeft: '3px solid #34d399' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, color: '#059669' }}>
+          <CheckCircle2 size={14} /> 策略已存在，无需重复下发
+        </div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{result.message}</div>
+      </div>
+    )
+  }
+
+  // 待确认操作（confirmation_required）
+  if (result.type === 'confirmation_required') {
+    const isOverride = result.confirmation_type === 'override'
+    const accentColor = isOverride ? '#f97316' : '#ef4444'
+    const accentBg    = isOverride ? '#fff7ed' : '#fef2f2'
+    const borderColor = isOverride ? '#fed7aa' : '#fecaca'
+    return (
+      <ConfirmationCard result={result} accentColor={accentColor} accentBg={accentBg} borderColor={borderColor} isOverride={isOverride} />
+    )
+  }
 
   // 澄清需求
   if (result.type === 'clarification') {
@@ -272,6 +397,8 @@ function IntentBubble({ record }) {
     if (['pending', 'parsing', 'executing'].includes(record.status)) return record.status
     if (record.execution_result?.type === 'conflict') return 'conflict'
     if (record.execution_result?.type === 'clarification') return 'clarification'
+    if (record.execution_result?.type === 'confirmation_required') return 'awaiting_confirmation'
+    if (record.execution_result?.type === 'duplicate_skip') return 'success'
     return record.status
   })()
   const cfg = STATUS_CONFIG[effectiveStatus] || STATUS_CONFIG.pending

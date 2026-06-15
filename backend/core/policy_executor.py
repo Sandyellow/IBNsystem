@@ -128,7 +128,7 @@ class PolicyExecutor:
         
         res = []
         for n in nodes:
-            if n in exclude: continue
+            # 如果节点被明确指定在 nodes 中，则其优先级高于全局的 exclude 列表，防止被误伤
             h = topo_manager.get_host(n)
             if h: res.append(h)
         return res
@@ -149,18 +149,24 @@ class PolicyExecutor:
 
     async def _block_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发流量阻断策略，在交换机上安装 DROP 流表规则"""
-        src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
-        
-        # 检查是否是全网隔离（wildcard block）
-        is_wildcard = False
+        # 检查是否是源端全网隔离
+        is_src_wildcard = False
+        if not intent.source_nodes and intent.scope == IntentScope.ALL:
+            is_src_wildcard = True
+            src_hosts = [{"id": "any", "mac": "any", "ip": "any", "connected_switch": None}]
+        else:
+            src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
+
+        # 检查是否是目的端全网隔离
+        is_dst_wildcard = False
         if not intent.target_nodes and intent.scope == IntentScope.ALL:
-            is_wildcard = True
+            is_dst_wildcard = True
             dst_hosts = [{"id": "any", "mac": "any", "ip": "any", "connected_switch": None}]
         else:
             dst_hosts = self._resolve_hosts(intent.target_nodes, intent.scope, intent.exclude_nodes)
 
         if not src_hosts or not dst_hosts:
-            return {"success": False, "error": "源或目标主机解析为空"}
+            return {"success": False, "error": "源或目标主机解析为空（请确认主机已在网络中发过包被控制器发现）"}
 
         cookie = _make_cookie(intent_id)
         target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
@@ -186,12 +192,15 @@ class PolicyExecutor:
                         primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_rev, actions=[]))
 
         # 为 exclude_nodes 自动生成高优先级的 ALLOW 规则，防止被 wildcard block 误杀
-        if is_wildcard and intent.exclude_nodes:
+        if (is_src_wildcard or is_dst_wildcard) and intent.exclude_nodes:
             allow_hosts = [h for h in topo_manager.get_all_hosts() if h["id"] in intent.exclude_nodes]
             if allow_hosts:
-                allow_dpids = self._get_target_dpids(src_hosts, allow_hosts)
-                for src in src_hosts:
-                    for dst in allow_hosts:
+                # 谁是 wildcard，谁就被替换为 exclude 里的特定主机去放行
+                src_allow = allow_hosts if is_src_wildcard else src_hosts
+                dst_allow = allow_hosts if is_dst_wildcard else dst_hosts
+                allow_dpids = self._get_target_dpids(src_allow, dst_allow)
+                for src in src_allow:
+                    for dst in dst_allow:
                         match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
                         match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
                         for dpid in allow_dpids:
@@ -206,17 +215,20 @@ class PolicyExecutor:
             for d in target_dpids: await ryu_client.delete_flows_by_cookie(d, cookie)
             return {"success": False, "error": "批量下发流表失败，已回滚"}
 
+        src_desc = "全网" if is_src_wildcard else (", ".join(intent.source_nodes) if intent.source_nodes and len(intent.source_nodes) <= 3 else f"{len(src_hosts)}台主机")
+        dst_desc = "全网" if is_dst_wildcard else (", ".join(intent.target_nodes) if intent.target_nodes and len(intent.target_nodes) <= 3 else f"{len(dst_hosts)}台主机")
+        desc = f"阻断 {src_desc} 与 {dst_desc} 的通信"
+
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id, policy_type=PolicyType.BLOCK, scope=intent.scope,
             source_nodes=intent.source_nodes, target_nodes=intent.target_nodes, exclude_nodes=intent.exclude_nodes,
             intent_action=intent.action, action_params=intent.action_params if isinstance(intent.action_params, dict) else intent.action_params.model_dump(),
             match=intent.match.model_dump() if intent.match else None,
-            description=f"隔离 {len(src_hosts)} 台主机与{'全网' if is_wildcard else len(dst_hosts)}台主机的通信",
+            description=desc,
             ryu_cookies=[cookie], created_at=time.time()
         )
         save_policies(_active_policies, _meter_counter)
-        msg_target = "全网主机" if is_wildcard else f"{len(dst_hosts)} 台主机"
-        return {"success": True, "type": "block_traffic", "message": f"成功隔离 {len(src_hosts)} 台主机与 {msg_target} 的通信"}
+        return {"success": True, "type": "block_traffic", "message": desc}
 
     async def _allow_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发流量允许策略，安装高优先级 NORMAL 转发规则"""
@@ -255,16 +267,20 @@ class PolicyExecutor:
             for d in target_dpids: await ryu_client.delete_flows_by_cookie(d, cookie)
             return {"success": False, "error": "批量下发允许流表失败，已回滚"}
 
+        src_desc = ", ".join(intent.source_nodes) if intent.source_nodes and len(intent.source_nodes) <= 3 else f"{len(src_hosts)}台主机"
+        dst_desc = "全网主机" if not intent.target_nodes else (", ".join(intent.target_nodes) if len(intent.target_nodes) <= 3 else f"{len(dst_hosts)}台主机")
+        desc = f"放通 {src_desc} 与 {dst_desc} 的通信"
+        
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id, policy_type=PolicyType.ALLOW, scope=intent.scope,
             source_nodes=intent.source_nodes, target_nodes=intent.target_nodes, exclude_nodes=intent.exclude_nodes,
             intent_action=intent.action, action_params=intent.action_params if isinstance(intent.action_params, dict) else intent.action_params.model_dump(),
             match=intent.match.model_dump() if intent.match else None,
-            description=f"明确允许 {len(src_hosts)} ↔ {len(dst_hosts)} 台主机",
+            description=desc,
             ryu_cookies=[cookie], created_at=time.time()
         )
         save_policies(_active_policies, _meter_counter)
-        return {"success": True, "type": "allow_traffic", "message": f"成功下发允许规则：{len(src_hosts)} 到 {len(dst_hosts)} 台主机"}
+        return {"success": True, "type": "allow_traffic", "message": desc}
 
     async def _rate_limit(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发带宽限速策略，通过 Meter 表实现流量速率限制"""
@@ -301,9 +317,15 @@ class PolicyExecutor:
             await ryu_client.apply_primitive(pf2)
             meter_ids.append(m_rev)
 
+        src_desc = ", ".join(intent.source_nodes) if intent.source_nodes and len(intent.source_nodes) <= 3 else f"{len(src_hosts)}台主机"
+        dst_desc = "全网" if not intent.target_nodes else (", ".join(intent.target_nodes) if len(intent.target_nodes) <= 3 else f"{len(dst_hosts)}台主机")
+        desc = f"限速 {src_desc} 与 {dst_desc} 为 {bw_mbps}M"
+
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id, policy_type=PolicyType.RATE_LIMIT, source_nodes=[src["id"]], target_nodes=[dst["id"]],
-            intent_action=intent.action, ryu_cookies=[cookie], meter_ids=meter_ids, description=f"限速 {bw_mbps}M", created_at=time.time()
+            intent_action=intent.action,
+            action_params={"bandwidth_mbps": bw_mbps},
+            ryu_cookies=[cookie], meter_ids=meter_ids, description=desc, created_at=time.time()
         )
         dir_text = "双向" if intent.direction == "bidirectional" else "单向"
         return {"success": True, "type": "rate_limit", "message": f"{dir_text}限速 {bw_mbps}Mbps 成功"}
@@ -319,35 +341,37 @@ class PolicyExecutor:
         target_dpids = self._get_target_dpids(src_hosts, dst_hosts)
 
         primitives = []
-        processed_pairs = set()
         prio = intent.intent_priority if intent.intent_priority is not None else priority
         
         for src in src_hosts:
             for dst in dst_hosts:
-                if src["id"] == dst["id"]:
-                    continue
-                pair = (src["id"], dst["id"])
-                rev_pair = (dst["id"], src["id"])
-                if pair in processed_pairs or (intent.direction == "bidirectional" and rev_pair in processed_pairs):
-                    continue
-                processed_pairs.add(pair)
                 match_fwd = _build_match(src["mac"], dst["mac"], src.get("ip"), dst.get("ip"), intent.match)
                 match_rev = _build_match(dst["mac"], src["mac"], dst.get("ip"), src.get("ip"), intent.match)
-                
                 for dpid in target_dpids:
                     primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_fwd, actions=[{"type": "OUTPUT", "port": "NORMAL"}]))
                     if intent.direction == "bidirectional":
                         primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_rev, actions=[{"type": "OUTPUT", "port": "NORMAL"}]))
-
+        
         import asyncio
-        await asyncio.gather(*(ryu_client.apply_primitive(p) for p in primitives))
+        results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in primitives))
+        if not all(results):
+            for d in target_dpids: await ryu_client.delete_flows_by_cookie(d, cookie)
+            return {"success": False, "error": "批量下发优先级流表失败"}
+
+        src_desc = ", ".join(intent.source_nodes) if intent.source_nodes and len(intent.source_nodes) <= 3 else f"{len(src_hosts)}台主机"
+        dst_desc = "全网" if not intent.target_nodes else (", ".join(intent.target_nodes) if len(intent.target_nodes) <= 3 else f"{len(dst_hosts)}台主机")
+        desc = f"设置 {src_desc} ↔ {dst_desc} 为高优先级(Level {priority})"
 
         _active_policies[intent_id] = ActivePolicy(
-            id=intent_id, policy_type=PolicyType.PRIORITY, source_nodes=intent.source_nodes, target_nodes=intent.target_nodes,
-            intent_action=intent.action, ryu_cookies=[cookie], description=f"设优先级 {priority}", created_at=time.time()
+            id=intent_id, policy_type=PolicyType.PRIORITY, scope=intent.scope,
+            source_nodes=intent.source_nodes, target_nodes=intent.target_nodes, exclude_nodes=intent.exclude_nodes,
+            intent_action=intent.action, action_params=intent.action_params if isinstance(intent.action_params, dict) else intent.action_params.model_dump(),
+            match=intent.match.model_dump() if intent.match else None,
+            description=desc,
+            ryu_cookies=[cookie], created_at=time.time()
         )
         save_policies(_active_policies, _meter_counter)
-        return {"success": True, "type": "set_priority", "message": f"已设置 {len(primitives)} 条优先转发规则"}
+        return {"success": True, "type": "set_priority", "message": desc}
 
     async def _clear_flows(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """清除指定交换机上所有 IBN 自定义流表规则"""
@@ -421,12 +445,16 @@ class PolicyExecutor:
         import asyncio
         await asyncio.gather(*(ryu_client.apply_primitive(p) for p in primitives))
 
+        src_desc = ", ".join(intent.source_nodes) if intent.source_nodes and len(intent.source_nodes) <= 3 else f"{len(src_hosts)}台主机"
+        dst_desc = "全网" if not intent.target_nodes else (", ".join(intent.target_nodes) if len(intent.target_nodes) <= 3 else f"{len(dst_hosts)}台主机")
+        desc = f"QoS 标记: {src_desc} ↔ {dst_desc} (DSCP={dscp})"
+
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id, policy_type=PolicyType.QOS_MARK, source_nodes=intent.source_nodes, target_nodes=intent.target_nodes,
-            intent_action=intent.action, ryu_cookies=[cookie], description=f"DSCP 标记 {dscp}", created_at=time.time()
+            intent_action=intent.action, ryu_cookies=[cookie], description=desc, created_at=time.time()
         )
         save_policies(_active_policies, _meter_counter)
-        return {"success": True, "message": f"成功下发 DSCP = {dscp} 标记策略"}
+        return {"success": True, "message": desc}
 
     async def _vlan(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发 VLAN 划分策略，将指定主机隔离到独立 VLAN"""
@@ -496,14 +524,17 @@ class PolicyExecutor:
             for p in primitives: await ryu_client.delete_primitive(p)
             return {"success": False, "error": "部分交换机硬件不支持该操作，流表下发失败"}
 
+        src_desc = ", ".join(intent.source_nodes) if intent.source_nodes and len(intent.source_nodes) <= 3 else f"{len(src_hosts)}台主机"
+        desc = f"划分 {src_desc} 至 VLAN {vid}"
+
         _active_policies[intent_id] = ActivePolicy(
             id=intent_id, policy_type=PolicyType.VLAN, scope=intent.scope,
             source_nodes=[h["id"] for h in src_hosts], target_nodes=[],
             intent_action=intent.action, action_params={"vlan_id": vid},
-            ryu_cookies=[cookie], description=f"划分至 VLAN {vid}", created_at=time.time()
+            ryu_cookies=[cookie], description=desc, created_at=time.time()
         )
         save_policies(_active_policies, _meter_counter)
-        return {"success": True, "type": "vlan", "message": f"成功将 {len(src_hosts)} 台主机划分至 VLAN {vid}"}
+        return {"success": True, "type": "vlan", "message": desc}
 
     async def _multipath(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发多路径负载均衡策略，使用 Group Table 实现 WCMP"""

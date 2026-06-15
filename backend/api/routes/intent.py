@@ -12,6 +12,7 @@ from core.workflow import process_intent as graph_process_intent
 from core.policy_executor import policy_executor
 from core.topology_manager import topo_manager
 from api.websocket_manager import ws_manager
+from core.pending_confirmations import pop_pending, cleanup_expired
 
 router = APIRouter(prefix="/api/intent", tags=["intent"])
 logger = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ async def _process(record: IntentRecord):
             record.execution_result = result
         elif result.get("type") == "chat":
             record.status = IntentStatus.CHAT
+            record.execution_result = result
+        elif result.get("type") == "confirmation_required":
+            record.status = IntentStatus.AWAITING_CONFIRMATION
             record.execution_result = result
         elif result.get("success"):
             record.status = IntentStatus.SUCCESS
@@ -124,3 +128,91 @@ async def get_record(intent_id: str):
     if not record:
         raise HTTPException(404, "记录不存在")
     return record.model_dump()
+
+
+@router.post("/confirm/{token}")
+async def confirm_pending(
+    token: str,
+    background_tasks: BackgroundTasks,
+    cancel: bool = False,
+):
+    """用户确认或取消一个待确认操作。cancel=true 表示取消。"""
+    cleanup_expired()  # 顺便清理过期 token
+    item = pop_pending(token)
+    if item is None:
+        raise HTTPException(404, "确认令牌不存在或已过期，请重新提交意图")
+
+    if cancel:
+        logger.info(f"[Confirm] 用户取消 token={token[:8]}… type={item.confirmation_type}")
+        cancel_result = {
+            "type": "confirmation_cancelled",
+            "success": False,
+            "message": "操作已取消",
+        }
+        record = _records.get(item.intent_id)
+        if record:
+            record.status = IntentStatus.FAILED
+            record.execution_result = cancel_result
+            record.updated_at = _now()
+            await ws_manager.broadcast_intent_update(record.model_dump())
+        else:
+            await ws_manager.broadcast_intent_update({
+                "id": item.intent_id,
+                "status": IntentStatus.FAILED,
+                "execution_result": cancel_result,
+            })
+        return cancel_result
+
+    logger.info(f"[Confirm] 用户确认 token={token[:8]}… type={item.confirmation_type}")
+
+    async def _execute_confirmed():
+        try:
+            # OVERRIDE 类型：先撤销旧策略
+            if item.confirmation_type == "override" and item.old_policy_id:
+                ok, msg = await policy_executor.delete_policy(item.old_policy_id)
+                logger.info(f"[Confirm] 撤销旧策略 {item.old_policy_id}: {ok} {msg}")
+
+            # 执行新意图
+            result = await policy_executor.execute(item.intent, item.intent_id)
+            result["confirmation_type"] = item.confirmation_type
+
+            # 推送执行结果给前端
+            if result.get("success"):
+                status = IntentStatus.SUCCESS
+                await topo_manager.refresh()
+                await ws_manager.broadcast({
+                    "type": "policy_update",
+                    "data": policy_executor.get_active_policies(),
+                })
+            else:
+                status = IntentStatus.FAILED
+
+            record = _records.get(item.intent_id)
+            if record:
+                record.status = status
+                record.execution_result = result
+                record.updated_at = _now()
+                await ws_manager.broadcast_intent_update(record.model_dump())
+            else:
+                await ws_manager.broadcast_intent_update({
+                    "id": item.intent_id,
+                    "status": status,
+                    "execution_result": result,
+                })
+        except Exception as e:
+            logger.error(f"[Confirm] 执行异常: {e}", exc_info=True)
+            record = _records.get(item.intent_id)
+            if record:
+                record.status = IntentStatus.FAILED
+                record.execution_result = {"success": False, "error": str(e)}
+                record.updated_at = _now()
+                await ws_manager.broadcast_intent_update(record.model_dump())
+            else:
+                await ws_manager.broadcast_intent_update({
+                    "id": item.intent_id,
+                    "status": IntentStatus.FAILED,
+                    "execution_result": {"success": False, "error": str(e)},
+                })
+
+    background_tasks.add_task(_execute_confirmed)
+    return {"message": "正在执行确认操作，结果将通过 WebSocket 推送"}
