@@ -1,110 +1,107 @@
 <div align="center">
 
-# IBN — Intent-Based Networking System
+# IBN System
 
-**基于大语言模型的自然语言 SDN 网络管理系统**
-
-*Tell the network what you want, not how to do it.*
+**用自然语言管理 SDN 网络**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
-[![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
-[![Ryu](https://img.shields.io/badge/SDN-Ryu-ff69b4?style=flat-square)](https://ryu-sdn.org/)
-[![OpenFlow](https://img.shields.io/badge/OpenFlow-1.3-00a393?style=flat-square)](https://opennetworking.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](./LICENSE)
-
-[使用手册](./USAGE.md) &nbsp;&middot;&nbsp; [API 文档](http://localhost:8000/docs)
+[![License](https://img.shields.io/badge/License-MIT-555?style=flat-square)](./LICENSE)
 
 </div>
 
 ---
 
-## 简介
+IBN System 是一个运行在 Ryu/Mininet 虚拟网络环境上的网络管理系统。管理员输入自然语言，系统将其解析为 OpenFlow 流表规则并下发；拓扑、流量统计和执行结果通过 WebSocket 实时同步至前端。
 
-**IBN System** 是一个基于自然语言的网络管理系统，结合大语言模型（LLM）与软件定义网络（SDN）技术，支持网络管理员使用自然语言对网络状态进行查询与流量控制。
+## 系统架构
 
-系统通过 LLM 解析用户运维意图，将其规范化后直接映射为 Ryu 控制器的 REST API 调用，并通过 OpenFlow 协议下发流表规则，实现交互式、直观的网络管理方案。
+![System Architecture](./docs/architecture.svg)
 
----
+## 工作流程
 
-## 核心特性
+![Intent Processing Flow](./docs/intent_flow.svg)
 
-| 特性 | 说明 |
-|------|------|
-| **自然语言控制** | 对话式网络管理接口，支持流量管控、状态查询等多类意图的解析与参数自动提取 |
-| **三步流水线架构** | 意图解析 -> 策略执行 -> 状态推送，LLM 直接生成可执行指令，零中间转译层 |
-| **实时拓扑发现** | 基于 LLDP 协议自动感知物理拓扑变化，Web 前端力导向图实时渲染 |
-| **安全拦截** | 节点隔离、流表清空等高危操作强制二次确认，执行前自动检测策略冲突 |
-| **WebSocket 实时同步** | 拓扑变更、端口流量统计、意图执行进度通过 WebSocket 双向通道毫秒级推送 |
+## 使用示例
 
----
+以下是系统支持的部分指令，直接在前端输入框中输入即可：
 
-## 技术栈
+```
+隔离 h1 和 h3，让它们不能互相通信
+把 h2 到 h4 的流量限制在 5 Mbps
+限制 h1 到 h3 的 SSH 流量
+把 h1 和 h2 划分到 VLAN 10
+在 h1 和 h2 之间启用多路径负载均衡
+先限制 h1 到 h2 带宽 3 Mbps，再隔离 h3   ← 复合指令，自动拆分执行
+清除 s1 上的所有自定义规则               ← 需要在前端二次确认
+```
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| **前端** | React 19 &middot; Vite 8 &middot; Zustand &middot; Recharts &middot; @xyflow/react | Glassmorphism UI &middot; 力导向拓扑图 &middot; 实时统计图表 |
-| **后端** | FastAPI &middot; Pydantic v2 &middot; WebSocket | 异步流水线 &middot; 自动生成 OpenAPI 文档 |
-| **AI** | OpenAI 兼容接口 | 支持 SiliconFlow / DeepSeek / Ollama / vLLM 等任意兼容服务 |
-| **SDN** | Ryu Controller &middot; OpenFlow 1.3 | LLDP 拓扑发现 &middot; Meter 表限速 &middot; 流表管理 |
-| **仿真** | Mininet &middot; Open vSwitch | 多拓扑模板 &middot; 可编程网络仿真 |
+每条策略在执行前都经过三层校验：
+
+![Validation Flow](./docs/validation_flow.svg)
 
 ---
 
 ## 快速开始
 
-详细步骤请参阅 [使用手册 (USAGE.md)](./USAGE.md)。
+**依赖**：Windows 主机（Python 3.10+，Node.js 18+）+ Ubuntu VM（Ryu，Mininet，OVS）
 
 ```powershell
-# 1. 安装后端依赖
 python -m venv .venv
 .\.venv\Scripts\pip install -r backend\requirements.txt
-
-# 2. 安装前端依赖
 cd frontend; npm install; cd ..
-
-# 3. 配置环境变量
 Copy-Item backend\.env.example backend\.env
-# 编辑 backend\.env 填入 LLM API Key 和 VM IP 地址
+# 编辑 backend\.env，填入 LLM_API_KEY 和 RYU_REST_URL
+```
 
-# 4. 启动后端
+```powershell
+# 终端 1
 .\.venv\Scripts\uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 5. 启动前端
+# 终端 2
 cd frontend; npm run dev
 ```
+
+```bash
+# Ubuntu VM
+sudo bash ~/Desktop/vm-agent/startup.sh
+```
+
+前端地址：`http://localhost:5173`。完整部署说明见 [USAGE.md](./USAGE.md)。
+
 ---
 
 ## 项目结构
 
 ```
 AskAnything/
-├── backend/                 # FastAPI 后端
-│   ├── api/                 #   REST + WebSocket 路由
-│   ├── core/                #   意图解析、策略执行、拓扑管理
-│   ├── models/              #   Pydantic 数据模型
-│   ├── main.py              #   应用入口
-│   ├── config.py            #   环境配置
-│   └── requirements.txt
-├── frontend/                # React 前端
-│   ├── src/
-│   │   ├── components/      #   UI 组件
-│   │   ├── stores/          #   Zustand 状态管理
-│   │   └── api/             #   HTTP + WebSocket 客户端
-│   └── package.json
-├── vm-agent/                # Ubuntu VM 端脚本
-│   ├── ryu_controller.py    #   Ryu 控制器应用
-│   ├── mininet_topology.py  #   Mininet 拓扑定义
-│   ├── startup.sh           #   一键启动
-│   ├── stop.sh              #   停止服务
-│   └── logs.sh              #   日志查看
-├── README.md
+├── backend/
+│   ├── core/
+│   │   ├── workflow.py          # LangGraph Agent 状态机（核心入口）
+│   │   ├── intent_validator.py  # 策略校验（拓扑 / 安全 / 冲突）
+│   │   ├── policy_executor.py   # OpenFlow 指令构造与下发
+│   │   ├── ryu_client.py        # Ryu REST API 客户端
+│   │   └── topology_manager.py  # LLDP 拓扑轮询
+│   ├── api/                     # REST 路由 + WebSocket
+│   ├── models/                  # Pydantic 数据模型
+│   └── main.py
+├── frontend/
+│   └── src/
+│       ├── components/          # 拓扑图、对话框、流量图表
+│       ├── stores/              # Zustand 状态管理
+│       └── api/                 # HTTP + WebSocket 客户端
+├── vm-agent/
+│   ├── ryu_controller.py        # Ryu 控制器
+│   ├── mininet_topology.py      # 拓扑定义
+│   ├── topology*.json           # 拓扑配置（线型 / 环型 / 多路径 / 胖树）
+│   └── startup.sh
+├── docs/
+│   ├── architecture.svg
+│   ├── intent_flow.svg
+│   └── validation_flow.svg
 └── USAGE.md
 ```
 
 ---
 
-## 开源协议
-
-本项目基于 [MIT License](./LICENSE) 开源。
+MIT License
