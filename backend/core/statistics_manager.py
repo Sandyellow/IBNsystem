@@ -1,4 +1,8 @@
-"""端口流量统计管理器 — 定时采集各交换机端口速率并维护历史数据"""
+"""
+后台端口流量采集与统计。
+
+定时拉取各交换机的端口计数，计算实时速率并维护近期历史数据。
+"""
 
 import asyncio
 import logging
@@ -12,7 +16,7 @@ from core.topology_manager import topo_manager
 
 logger = logging.getLogger(__name__)
 
-# 保存每个交换机（dpid 字符串）的历史速率数据点，保留最近 40 个点（约 2 分钟，轮询间隔 3s）
+# 保留最近 40 个数据点（约 2 分钟历史，轮询间隔 3s）
 MAX_HISTORY_LEN = 40
 
 class StatsManager:
@@ -66,7 +70,7 @@ class StatsManager:
                         for port_stat in stats:
                             port_no = port_stat.get("port_no")
                             if port_no is None or port_no == "LOCAL" or port_no > 100000:
-                                # 忽略内部接口（如 port_no 为 4294967294 等）
+                                # 过滤内部接口
                                 continue
                             
                             rx_bytes = port_stat.get("rx_bytes", 0)
@@ -81,7 +85,7 @@ class StatsManager:
                                 else:
                                     rx_rate = 0
                                     tx_rate = 0
-                                # 转换为 Kb/s 并保留三位小数 (Kilobits per second) 以平滑曲线
+                                # 转换为 Kbps (千比特/秒)
                                 point_data[f"{port_no}_rx"] = round((rx_rate * 8) / 1000, 3)
                                 point_data[f"{port_no}_tx"] = round((tx_rate * 8) / 1000, 3)
                             else:

@@ -1,7 +1,7 @@
 """
-拓扑与主机状态管理器
-从 Ryu topology API 获取网络拓扑，并动态发现主机 MAC/IP/连接端口（完全动态，无静态配置局限）
-替代旧版 network_manager.py
+网络拓扑管理器。
+
+定时从控制器同步交换机和链路状态，动态维护主机的 MAC/IP 及接入位置。
 """
 from __future__ import annotations
 import asyncio
@@ -70,7 +70,7 @@ def _is_placeholder_mac(mac: str) -> bool:
     """检测是否是静态占位 MAC（如 00:00:00:00:00:01）"""
     if not mac:
         return True
-    # OUI 全为 00 且主机部分主要起侏手，这种 MAC 在真实网卡上几乎不存在
+    # 过滤全 0 的占位 MAC 地址
     parts = mac.split(":")
     if len(parts) != 6:
         return True
@@ -82,7 +82,7 @@ class TopoManager:
 
     def __init__(self):
         self._topology: Dict[str, Any] = {"nodes": [], "links": [], "timestamp": 0.0}
-        self._hosts: List[HostInfo] = []  # 初始为空，等待动态发现
+        self._hosts: List[HostInfo] = []  # 初始为空，依赖后续动态发现
         self._ryu_connected: bool = False
         self._poll_task: Optional[asyncio.Task] = None
         self._callbacks: List[Callable] = []
@@ -130,7 +130,7 @@ class TopoManager:
                     return int(dpid_str, 16) if isinstance(dpid_str, str) else int(dpid_str)
                 except (ValueError, TypeError):
                     pass
-        # 兜底：s1→1, s2→2, s3→3
+        # 容错：解析名称后缀数字
         try:
             return int(switch_id.lstrip("s"))
         except (ValueError, TypeError):
@@ -147,7 +147,7 @@ class TopoManager:
                     dpids.append(dpid)
                 except Exception:
                     pass
-        return dpids if dpids else [1, 2, 3]  # 兜底
+        return dpids if dpids else [1, 2, 3]  # 缺省值容错
 
     # ── 路由与寻路 ─────────────────────────────────────────
     def get_shortest_path(self, src_id: str, dst_id: str) -> List[str]:
@@ -321,7 +321,7 @@ class TopoManager:
                 })
 
             # 添加主机节点和主机-交换机链路
-            # 优先使用 Ryu 动态学习的真实 MAC，如果 Ryu 已有主机数据则同步更新 _hosts
+            # 同步控制器端最新的 MAC 表
             ryu_hosts_raw = await ryu_client.get_topology_hosts()
             if ryu_hosts_raw:
                 dynamic_hosts = _build_dynamic_hosts(ryu_hosts_raw)

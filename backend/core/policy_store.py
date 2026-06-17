@@ -1,4 +1,6 @@
-"""策略持久化 — 将活跃策略和 Meter 计数器保存到本地 JSON 文件并在启动时恢复"""
+"""
+本地策略与 Meter ID 持久化。
+"""
 
 import json
 import os

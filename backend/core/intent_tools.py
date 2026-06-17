@@ -1,7 +1,5 @@
 """
-LangChain 工具库
-封装系统现有的功能供 LLM Agent 调用。
-不改变底层核心逻辑，仅提供标准的 @tool 接口与明确的类型标注。
+提供给 LangChain LLM 的工具函数集合。
 """
 import json
 from langchain_core.tools import tool

@@ -1,6 +1,7 @@
 """
-LangGraph 意图处理工作流
-将意图解析、工具调用查询拓扑、规则验证与策略执行编排为状态机。
+基于 LangGraph 的意图处理状态机。
+
+串联 LLM 解析、工具调用、策略校验与下发的完整流程。
 """
 import json
 import logging
@@ -161,7 +162,7 @@ async def execute_node(state: IBNState):
         return {"execution_result": {"success": False, "error": "LLM failed to output IntentList or ClarificationNeeded"}}
         
     try:
-        # 1. 还原 Pydantic 模型
+        # 反序列化为对象
         args = intent_list_call["args"]
         intent_list = IntentList(**args)
         parsed_intents = intent_list.intents
@@ -171,14 +172,14 @@ async def execute_node(state: IBNState):
         from core.pending_confirmations import PendingItem, add_pending
         from core.policy_executor import policy_executor as _pe
 
-        # 2. Rule-based 验证层 (逐一验证)
+        # 逐一执行策略校验
         topo = topo_manager.topology
         all_reports = []
         for pi in parsed_intents:
             report = await intent_validator.validate(pi, topo, intent_id)
             all_reports.append((pi, report))
 
-            # ── 轨道 2a: DUPLICATE 幂等跳过 ────────────────────────────
+            # 处理重复意图（幂等）
             if report.conflict_resolution == "skip":
                 logger.info(f"[{intent_id}] DUPLICATE 幂等跳过: {pi.action}")
                 skip_result = {
@@ -193,7 +194,7 @@ async def execute_node(state: IBNState):
                 )
                 return {"messages": [msg], "execution_result": skip_result, "parsed_intents": parsed_intents}
 
-            # ── 轨道 2b / 3: OVERRIDE 或高危风险 → Pending Confirmation ──
+            # 处理需要二次确认的意图（高危操作或策略覆盖）
             if report.conflict_resolution == "pending_override" or report.requires_confirmation:
                 token = str(uuid.uuid4())
                 c_type = "override" if report.conflict_resolution == "pending_override" else "risk"
@@ -206,7 +207,7 @@ async def execute_node(state: IBNState):
                 add_pending(token, item)
                 logger.info(f"[{intent_id}] 进入 Pending Confirmation: type={c_type}, token={token[:8]}…")
 
-                # 构造给前端展示用的摘要
+                # 提取供前端展示的策略上下文
                 active_map = {p["id"]: p for p in _pe.get_active_policies()}
                 old_policy_summary = active_map.get(report.override_policy_id, {}) if report.override_policy_id else {}
                 new_intent_summary = {
@@ -238,7 +239,7 @@ async def execute_node(state: IBNState):
                 )
                 return {"messages": [msg], "execution_result": confirm_result, "parsed_intents": parsed_intents}
 
-            # ── 轨道 1 / 2c: 硬拦截 ───────────────────────────────────
+            # 处理硬性冲突（直接拒绝）
             if not report.overall_passed:
                 conflict_layer = next(
                     (res for res in report.layers if res.layer == "conflict_detection" and not res.passed),
@@ -266,7 +267,7 @@ async def execute_node(state: IBNState):
                     )
                     return {"messages": [msg], "execution_result": conflict_result, "parsed_intents": parsed_intents}
 
-                # 拓扑/安全错误：退回 LLM 重试
+                # 拓扑或安全规则不匹配，将报错反馈给 LLM 重试
                 error_msgs = [f"[{res.layer}] {res.message}" for res in report.layers if not res.passed]
                 full_error = (
                     f"意图 {pi.action} 验证失败：\n" + "\n".join(error_msgs)
@@ -279,15 +280,15 @@ async def execute_node(state: IBNState):
                 )
                 return {"messages": [tool_msg]}
 
-        # 3. 验证全部通过后，逐个执行
+        # 所有校验通过，依次下发策略
         final_results = []
         for i, pi in enumerate(parsed_intents):
             sub_id = f"{intent_id}_{i}" if len(parsed_intents) > 1 else intent_id
             res = await policy_executor.execute(pi, sub_id)
             final_results.append(res)
-            # 若中间有失败，可以视情况中断或继续。这里简化为全部执行完毕，合并结果。
+            # TODO: 目前暂不支持部分策略下发失败的回滚机制
         
-        # 将结果合并展示给前端
+        # 汇总执行结果并返回
         merged_res = {
             "success": all(r.get("success", False) for r in final_results),
             "type": final_results[0].get("type") if len(final_results) == 1 else "composite",
@@ -354,9 +355,9 @@ async def process_intent(user_text: str, intent_id: str) -> Dict[str, Any]:
             }
         return {"success": False, "error": "执行失败：未产生有效结果", "parsed_intents": parsed_intents}
     
-    # 存入列表供前端记录
+    # 保存意图列表记录
     result["parsed_intent_list"] = parsed_intents
-    # 为了兼容前端现在的气泡展示，取第一个意图作为主意图
+    # 提取首个意图作为主意图
     if parsed_intents:
         result["parsed_intent_obj"] = parsed_intents[0]
 

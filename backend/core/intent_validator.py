@@ -1,6 +1,7 @@
 """
-意图策略验证器 — 负责网络状态策略层面的真正校验
-三层核心验证：拓扑验证 (TOPOLOGY) -> 安全策略 (SECURITY) -> 冲突检测 (CONFLICT)
+策略下发前的合法性校验。
+
+包含拓扑节点检查、高危指令拦截以及策略冲突检测。
 """
 from __future__ import annotations
 import logging
@@ -16,16 +17,16 @@ Topology = Union[Dict[str, Any], TopologyModel]
 
 logger = logging.getLogger(__name__)
 
-# ── 始终需要二次确认（全局破坏性强）─────────────────────────────────
+# 需强制二次确认的操作（全局破坏性）
 HIGH_RISK_ACTIONS = {IntentAction.CLEAR_FLOWS}
 
-# 仅当 scope="all" 时才触发确认（全网影响）
+# 当 scope="all" 时触发确认
 SCOPE_DEPENDENT_RISK_ACTIONS = {
     IntentAction.BLOCK_TRAFFIC,
     IntentAction.ACL,
 }
 
-# 绝对禁止的参数组合（安全红线）
+# 禁止的参数组合（安全红线）
 FORBIDDEN_COMBOS = [
     # 在 _validate_security_policy 中处理
 ]
@@ -171,7 +172,7 @@ class IntentValidator:
         for check in FORBIDDEN_COMBOS:
             pass # reserved for future lambdas
             
-        # 注意: FORBIDDEN_COMBOS 原本检查 source_node is None, 新版本对应 source_nodes == [] 并且 scope != all
+        # 兼容校验：拦截 source_nodes 为空且 scope 并非 all 的操作
         if intent.action in {IntentAction.BLOCK_TRAFFIC, IntentAction.ACL}:
             if not intent.source_nodes and not intent.target_nodes and intent.scope != "all" and not intent.target_switch:
                 return ValidationResult(
@@ -193,7 +194,7 @@ class IntentValidator:
                 message="查询类操作，跳过冲突检测",
             )
 
-        # 修复自环检查：只有 source 和 target 完全相同且只有一个节点时才拦截
+        # 拦截单一节点的自环策略
         src_set = set(intent.source_nodes)
         tgt_set = set(intent.target_nodes)
         if src_set and tgt_set and src_set == tgt_set and len(src_set) == 1:
@@ -281,7 +282,7 @@ class IntentValidator:
                 message="未检测到策略冲突",
             )
 
-        # 分级处置：只取最严重的冲突
+        # 冲突分级处理
         has_mutually_exclusive = any(c.severity == ConflictSeverity.MUTUALLY_EXCLUSIVE for c in conflicts)
         has_override = any(c.severity == ConflictSeverity.OVERRIDE for c in conflicts)
         has_duplicate = any(c.severity == ConflictSeverity.DUPLICATE for c in conflicts)
@@ -297,7 +298,7 @@ class IntentValidator:
             )
 
         if has_override:
-            # 取第一个 OVERRIDE 冲突的旧策略 ID
+            # 提取首个 OVERRIDE 冲突的 ID
             override_conflict = next(c for c in conflicts if c.severity == ConflictSeverity.OVERRIDE)
             return ValidationResult(
                 layer=ValidationLayer.CONFLICT_DETECTION, passed=True,
@@ -342,7 +343,7 @@ class IntentValidator:
             else:
                 values.append(v)
         
-        # 将 L3/L4 match 条件也作为身份特征的一部分，防止 SSH 与 ICMP 混淆
+        # 加入 L3/L4 match 特征，区分多层协议匹配
         match_dict = intent.match.model_dump() if getattr(intent, "match", None) else {}
         match_norm = frozenset((k, v) for k, v in match_dict.items() if v is not None)
         values.append(match_norm)

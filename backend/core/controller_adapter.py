@@ -1,4 +1,6 @@
-"""控制器适配器抽象层 — 定义网络原语和 SDN 控制器适配器接口"""
+"""
+SDN 控制器适配器基类及网络原语数据结构。
+"""
 
 import logging
 from abc import ABC, abstractmethod
@@ -22,8 +24,8 @@ class NetworkPrimitive(BaseModel):
     cookie: Optional[int] = None
     priority: int = 0
     match: Dict[str, Any] = {}
-    actions: List[Dict[str, Any]] = []  # 抽象动作描述
-    extra: Dict[str, Any] = {}          # 特定原语（如 Meter）的额外参数
+    actions: List[Dict[str, Any]] = []  # 动作列表
+    extra: Dict[str, Any] = {}          # 原语附加参数（如 Meter/Group 属性）
 
 class ControllerAdapter(ABC):
     """

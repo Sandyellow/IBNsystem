@@ -1,5 +1,7 @@
 """
-策略执行器 — 将解析好的 ParsedIntent 映射到 NetworkPrimitive 并通过 ControllerAdapter 下发
+策略执行模块。
+
+将 ParsedIntent 转换为 NetworkPrimitive，并调用控制器接口下发流表或组表。
 """
 from __future__ import annotations
 import hashlib
@@ -149,7 +151,7 @@ class PolicyExecutor:
 
     async def _block_traffic(self, intent: ParsedIntent, intent_id: str) -> Dict:
         """下发流量阻断策略，在交换机上安装 DROP 流表规则"""
-        # 检查是否是源端全网隔离
+        # 解析源端通配符
         is_src_wildcard = False
         if not intent.source_nodes and intent.scope == IntentScope.ALL:
             is_src_wildcard = True
@@ -157,7 +159,7 @@ class PolicyExecutor:
         else:
             src_hosts = self._resolve_hosts(intent.source_nodes, intent.scope, intent.exclude_nodes)
 
-        # 检查是否是目的端全网隔离
+        # 解析目的端通配符
         is_dst_wildcard = False
         if not intent.target_nodes and intent.scope == IntentScope.ALL:
             is_dst_wildcard = True
@@ -191,11 +193,11 @@ class PolicyExecutor:
                     if intent.direction == "bidirectional":
                         primitives.append(NetworkPrimitive(primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_rev, actions=[]))
 
-        # 为 exclude_nodes 自动生成高优先级的 ALLOW 规则，防止被 wildcard block 误杀
+        # 下发 exclude_nodes 的高优先级 ALLOW 规则
         if (is_src_wildcard or is_dst_wildcard) and intent.exclude_nodes:
             allow_hosts = [h for h in topo_manager.get_all_hosts() if h["id"] in intent.exclude_nodes]
             if allow_hosts:
-                # 谁是 wildcard，谁就被替换为 exclude 里的特定主机去放行
+                # 对通配方进行 exclude 替换
                 src_allow = allow_hosts if is_src_wildcard else src_hosts
                 dst_allow = allow_hosts if is_dst_wildcard else dst_hosts
                 allow_dpids = self._get_target_dpids(src_allow, dst_allow)
@@ -496,7 +498,7 @@ class PolicyExecutor:
                     primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_uni, actions=actions_uni
                 ))
 
-            # 2. 允许该主机的广播流量 (ARP等) 
+            # 2. 允许广播流量 (如 ARP)
             match_bcast = {"in_port": port, "eth_src": src_mac, "eth_dst": "ff:ff:ff:ff:ff:ff"}
             actions_bcast = [
                 {"type": "PUSH_VLAN", "ethertype": 33024},
@@ -508,7 +510,7 @@ class PolicyExecutor:
                 primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio, match=match_bcast, actions=actions_bcast
             ))
 
-            # 3. 隔离（丢弃）该主机发往非 VLAN 成员的任何其他流量 (降低优先级)
+            # 3. 丢弃非 VLAN 成员的其余流量
             match_drop = {"in_port": port, "eth_src": src_mac}
             primitives.append(NetworkPrimitive(
                 primitive_type=PrimitiveType.FLOW_ENTRY, dpid=dpid, cookie=cookie, priority=prio - 1, match=match_drop, actions=[]
@@ -628,13 +630,13 @@ class PolicyExecutor:
         group_prims = [p for p in primitives if p.primitive_type == PrimitiveType.GROUP_ENTRY]
         flow_prims = [p for p in primitives if p.primitive_type == PrimitiveType.FLOW_ENTRY]
         
-        # 必须严格保证：先下发 Group Table
+        # 保证 Group Table 优先下发
         if group_prims:
             group_results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in group_prims))
             if not all(group_results):
                 return {"success": False, "error": "部分交换机不支持 Group Table，智能多路径规则下发失败。"}
         
-        # Group Table 生效后，再下发引用它的 Flow Table
+        # Group Table 成功后下发 Flow Table
         if flow_prims:
             flow_results = await asyncio.gather(*(ryu_client.apply_primitive(p) for p in flow_prims))
             if not all(flow_results):

@@ -1,9 +1,5 @@
 """
-Pending Confirmations Store — 存储等待用户二次确认的操作
-
-两种类型：
-  - "risk"    : 高危操作（CLEAR_FLOWS / scope=all 的 BLOCK/ACL）
-  - "override": OVERRIDE 冲突，等待用户确认是否替换旧策略
+高危及冲突操作的二次确认缓存机制。
 """
 from __future__ import annotations
 import logging

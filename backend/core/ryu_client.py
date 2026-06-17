@@ -1,6 +1,7 @@
 """
-Ryu REST API 直连客户端
-后端 Windows 直接对接 Ryu 控制器（http://VM:8080），不经过 VM Agent 中转
+Ryu 控制器 REST API 客户端。
+
+继承 ControllerAdapter，实现拓扑查询和流表下发等接口。
 """
 from __future__ import annotations
 import asyncio
