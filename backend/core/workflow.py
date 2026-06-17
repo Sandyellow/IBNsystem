@@ -23,7 +23,7 @@ from core.topology_manager import topo_manager
 logger = logging.getLogger(__name__)
 
 class IntentList(BaseModel):
-    """用于包装多个网络意图操作的列表。即使只有一个操作，也请放在列表中。"""
+    """网络意图操作集合"""
     intents: List[ParsedIntent] = Field(..., description="要执行的网络操作意图列表，按顺序执行。")
 
 # 定义图的状态
@@ -47,7 +47,7 @@ llm_with_tools = llm.bind_tools(tools + [IntentList, ClarificationNeeded])
 
 # 核心 Agent 节点
 async def agent_node(state: IBNState):
-    """LangGraph Agent 节点：调用 LLM 解析用户意图并决定下一步工具调用"""
+    """调用大模型解析意图，并规划后续执行工具"""
     messages = state["messages"]
 
     # System Prompt 定义

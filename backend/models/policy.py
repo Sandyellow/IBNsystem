@@ -1,4 +1,4 @@
-"""策略模型 — 定义活跃策略的 Pydantic 数据模型与策略类型枚举"""
+"""策略相关数据模型"""
 
 from __future__ import annotations
 from typing import Any, Dict, List, Optional

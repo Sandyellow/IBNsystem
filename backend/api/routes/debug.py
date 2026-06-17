@@ -1,4 +1,4 @@
-"""Debug API — 系统诊断接口（重构版）"""
+"""系统诊断与调试 API"""
 from __future__ import annotations
 import time
 import logging
@@ -54,7 +54,7 @@ class DryRunRequest(BaseModel):
 
 @router.post("/dry-run")
 async def debug_dry_run(req: DryRunRequest):
-    """意图干运行（只解析，不执行）"""
+    """测试意图解析结果"""
     t0 = time.perf_counter()
     topo_ctx = topo_manager.get_llm_context()
     intent, error = await parse_intent_dry_run(req.text)

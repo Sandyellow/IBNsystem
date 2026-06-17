@@ -1,4 +1,4 @@
-"""FastAPI 应用入口 — IBN System v2"""
+"""FastAPI 应用入口"""
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理：启动时连接 Ryu 并开始轮询，关闭时清理资源"""
+    """管理应用生命周期与资源连接"""
     topo_manager.on_topology_update(ws_manager.broadcast_topology)
     await topo_manager.start_polling()
     await stats_manager.start_polling(interval=3.0)

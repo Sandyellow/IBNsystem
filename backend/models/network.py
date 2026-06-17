@@ -1,4 +1,4 @@
-"""网络模型 — 定义拓扑节点、链路、端口统计等 Pydantic 数据模型"""
+"""网络拓扑数据模型"""
 
 from __future__ import annotations
 from typing import Any, Dict, List, Optional

@@ -1,4 +1,4 @@
-"""意图模型 — 定义意图解析、验证、执行所需的 Pydantic 数据模型"""
+"""意图解析数据模型"""
 
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Union, Literal
@@ -68,7 +68,7 @@ class VlanParams(BaseModel):
     vlan_id: int = Field(..., description="VLAN ID")
 
 class MultipathParams(BaseModel):
-    """多路径负载均衡参数（当前无额外参数）"""
+    """多路径负载均衡参数"""
     pass
 
 
@@ -92,9 +92,9 @@ class ParsedIntent(BaseModel):
     direction: Literal["bidirectional", "unidirectional"] = Field(default="bidirectional", description="策略方向：双向(bidirectional)或单向(unidirectional)。默认为双向。")
     target_switch: Optional[str] = Field(None, description="特定针对的交换机，如 's1'")
     
-    match: Optional[MatchCondition] = Field(None, description="可选的高级匹配条件（五元组等）")
+    match: Optional[MatchCondition] = Field(None, description="五元组等高级匹配条件")
     action_params: ActionParams = Field(default_factory=dict, description="特定操作的结构化参数，如 bandwidth_mbps, via_switch, dscp, vlan_id 等")
-    intent_priority: Optional[int] = Field(None, description="指定该规则的底层下发优先级（覆盖默认值）")
+    intent_priority: Optional[int] = Field(None, description="指定底层下发优先级")
     
     explanation: str = Field("", description="一句话中文解释你对本条意图的理解")
 
@@ -107,7 +107,7 @@ class ClarificationOption(BaseModel):
 
 class ClarificationNeeded(BaseModel):
     """当用户指令语义模糊时调用，返回澄清选项"""
-    reason: str = Field(description="解释为什么需要澄清（存在什么歧义）")
+    reason: str = Field(description="存在歧义并需要澄清的原因")
     options: List[ClarificationOption] = Field(description="提供给用户的几种可能选项")
 
 
