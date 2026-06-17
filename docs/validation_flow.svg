@@ -7,8 +7,7 @@
 
   <rect width="640" height="458" fill="#fff"/>
 
-  <!-- ── 顶部标题 ── -->
-  <text x="320" y="16" fill="#aaa" font-size="9.5" text-anchor="middle" letter-spacing="1.5">POLICY VALIDATION FLOW</text>
+  <!-- ── 顶部无需标题，由 README 提供 ── -->
 
   <!-- ══════════════════════════════════════════════════
        主流程（竖向，左列 x_center=220）
