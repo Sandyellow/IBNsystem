@@ -77,7 +77,6 @@ export default function PolicyPanel() {
     fetchPolicies()
   }, [])
 
-  // Listen for policy_update WebSocket messages via store
   useEffect(() => {
     const unsub = useStore.subscribe(
       state => state.lastPolicyUpdate,

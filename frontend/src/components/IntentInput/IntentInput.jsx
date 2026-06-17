@@ -344,15 +344,15 @@ function ResultDisplay({ result, action }) {
 
   // 控制类操作成功结果
   const controlColors = {
-    block_traffic: '#f97316',     // orange-500
-    allow_traffic: '#34d399',     // emerald-400
-    rate_limit: '#f59e0b',        // amber-500
-    set_priority: '#10b981',      // emerald-500
-    redirect_traffic: '#60a5fa',  // blue-400
-    clear_flows: '#64748b',       // slate-500
-    add_flow: '#34d399',          // emerald-400
-    delete_flow: '#f43f5e',       // rose-500
-    load_balance: '#a855f7',      // purple-500
+    block_traffic: '#f97316',
+    allow_traffic: '#34d399',
+    rate_limit: '#f59e0b',
+    set_priority: '#10b981',
+    redirect_traffic: '#60a5fa',
+    clear_flows: '#64748b',
+    add_flow: '#34d399',
+    delete_flow: '#f43f5e',
+    load_balance: '#a855f7',
   }
   const color = controlColors[result.type] || '#34d399'
 

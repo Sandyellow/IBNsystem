@@ -353,8 +353,8 @@ function EdgeDetailOverlay({ edgeData, onClose }) {
   const srcPortNum = edgeData.srcPort ? parseInt(edgeData.srcPort, 16) : null;
   const dstPortNum = edgeData.dstPort ? parseInt(edgeData.dstPort, 16) : null;
 
-  let srcCapacity = 100000; // default 100Mbps
-  let dstCapacity = 100000; // default 100Mbps
+  let srcCapacity = 100000;
+  let dstCapacity = 100000;
 
   if (srcDpidParsed && descData[srcDpidParsed]) {
     const pDesc = descData[srcDpidParsed].find(p => String(p.port_no) === String(srcPortNum));

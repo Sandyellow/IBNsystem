@@ -225,7 +225,7 @@ const CustomChartTooltip = ({ active, payload, label }) => {
     const ports = {}
     payload.forEach(item => {
       const pNo = item.dataKey.split('_')[0]
-      const type = item.dataKey.split('_')[1] // 'rx' or 'tx'
+      const type = item.dataKey.split('_')[1]
       if (!ports[pNo]) ports[pNo] = { color: item.color }
       ports[pNo][type] = item.value
     })

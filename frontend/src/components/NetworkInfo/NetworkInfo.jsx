@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import useStore from '../../store/useStore'
 import FlowTable from '../FlowTable/FlowTable'
 import PortStats from '../PortStats/PortStats'
@@ -30,19 +30,6 @@ const TABS = [
 function TopoInfo() {
   const topology = useStore(s => s.topology)
   const networkStatus = useStore(s => s.networkStatus)
-  const [statsData, setStatsData] = useState({})
-  const [historyData, setHistoryData] = useState({})
-  const [loadingStats, setLoadingStats] = useState(false)
-  const [autoRefresh, setAutoRefresh] = useState(true)
-
-  const fetchStats = async () => {
-    // Only need this if we want to show anything else from stats, but we are removing link stats here.
-    // We can keep a simple call if other parts needed it, but none do in TopoInfo.
-  }
-
-  useEffect(() => {
-    // No longer need to fetch stats here since link usage is moved to topology edge click
-  }, [])
 
   const nodes = topology?.nodes || []
   const links = topology?.links || []
@@ -169,7 +156,7 @@ export default function NetworkInfo() {
       <div style={{
         display: 'flex',
         background: 'var(--color-bg-sidebar)',
-        padding: '12px 12px', /* reduced parent padding slightly to give tabs more room */
+        padding: '12px 12px',
         borderBottom: '1px solid var(--color-border)',
       }}>
         <div style={{
@@ -178,7 +165,7 @@ export default function NetworkInfo() {
           background: 'var(--color-surface-2)',
           borderRadius: '10px',
           padding: '4px',
-          gap: '2px' /* reduced gap between tabs */
+          gap: '2px'
         }}>
           {TABS.map(tab => {
             const Icon = tab.icon
@@ -193,7 +180,7 @@ export default function NetworkInfo() {
                   border: 'none',
                   borderRadius: '6px',
                   color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-                  padding: '6px 0', /* 0 horizontal padding to maximize space */
+                  padding: '6px 0',
                   fontWeight: isActive ? 600 : 500,
                   cursor: 'pointer',
                   transition: 'var(--transition)',

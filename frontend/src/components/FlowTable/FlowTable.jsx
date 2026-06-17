@@ -198,7 +198,6 @@ export default function FlowTable({ autoRefresh = false }) {
   const switches = Object.keys(flowData)
   const displaySwitches = selectedSwitch === 'all' ? switches : [selectedSwitch]
 
-  // Determine which flows are IBN-installed (non-zero cookie, priority >= 200)
   const isCustomFlow = (flow) => flow.cookie && flow.cookie !== 0 && flow.priority >= 200
 
   const totalFlows = switches.reduce((s, k) => s + (flowData[k]?.length || 0), 0)
